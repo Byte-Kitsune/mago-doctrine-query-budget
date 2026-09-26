@@ -1,0 +1,15 @@
+{
+  "name": "byte-kitsune/mago-doctrine-query-budget",
+  "description": "Conservative Doctrine query budgets per PHP entrypoint for Mago.",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": "^8.2",
+    "carthage-software/mago": "1.50.*",
+    "nikic/php-parser": "^5.9"
+  },
+  "autoload": {
+    "psr-4": { "ByteKitsune\\MagoDoctrineQueryBudget\\": "src/" }
+  },
+  "config": { "allow-plugins": false, "sort-packages": true }
+}
