@@ -1,6 +1,6 @@
 # Mago Doctrine Query Budget
 
-**Beta: 0.1.0-beta.1.** The supported Doctrine calls and diagnostic schema may
+**Beta: 0.1.0-beta.2.** The supported Doctrine calls and diagnostic schema may
 change before a stable release; pin the exact prerelease version in consumers.
 
 A conservative Mago Analyzer Plugin for database statement estimates per
