@@ -190,7 +190,7 @@ final class Evaluator
         if ($receiver === 'Doctrine\\DBAL\\Statement' && $name === 'execute') return new Estimate(1, 1);
         if ($receiver === 'Doctrine\\DBAL\\Result' && in_array($name, ['fetchone', 'fetchassociative', 'fetchallassociative', 'fetchallnumeric', 'fetchfirstcolumn', 'rowcount', 'free'], true)) return new Estimate();
         if ($receiver === 'Doctrine\\DBAL\\Query\\QueryBuilder' && in_array($name, ['executequery', 'executestatement'], true)) return new Estimate(1, 1);
-        if ($receiver === 'Doctrine\\ORM\\Query' && in_array($name, ['execute', 'getresult', 'getsingleresult', 'getoneornullresult', 'getscalarresult', 'getarrayresult', 'toiterable'], true)) return new Estimate(1, null, ['ORM hydration, cache and lazy loading may add statements']);
+        if ($receiver === 'Doctrine\\ORM\\Query' && in_array($name, ['execute', 'getresult', 'getsingleresult', 'getoneornullresult', 'getscalarresult', 'getarrayresult', 'toiterable'], true)) return new Estimate(0, null, ['ORM cache, hydration and lazy loading are not bounded']);
         if (in_array($receiver, ['Doctrine\\ORM\\EntityRepository', 'Doctrine\\Bundle\\DoctrineBundle\\Repository\\ServiceEntityRepository'], true) && in_array($name, ['find', 'findall', 'findby', 'findoneby', 'count'], true)) return new Estimate(0, null, ['repository/cache/lazy-loading behavior']);
         if ($this->program->method($receiver, $method) !== null) return $this->method($receiver, $method, $stack);
         if ($this->isProvenConstruction($receiver, $name)) return new Estimate();
