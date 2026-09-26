@@ -1,5 +1,8 @@
 # Mago Doctrine Query Budget
 
+**Beta: 0.1.0-beta.1.** The supported Doctrine calls and diagnostic schema may
+change before a stable release; pin the exact prerelease version in consumers.
+
 A conservative Mago Analyzer Plugin for database statement estimates per
 Controller action or Command invocation. It reports lower/upper bounds and
 explicit unknowns, rather than claiming exact runtime SQL counts. It never
