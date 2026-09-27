@@ -12,3 +12,4 @@ jobs:
       - run: composer install --no-interaction --prefer-dist
       - run: find src tests -name '*.php' -exec php -l {} \;
       - run: sh tests/smoke.sh
+      - run: sh tests/scale-smoke.sh

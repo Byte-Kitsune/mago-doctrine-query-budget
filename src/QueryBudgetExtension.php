@@ -30,7 +30,7 @@ final class QueryBudgetExtension
         return new Extension(
             identifier: 'byte-kitsune/doctrine-query-budget',
             name: 'Doctrine query budget',
-            version: '0.1.0-beta.2',
+            version: '0.1.0-beta.3',
             analyzerPlugins: [new QueryBudgetPlugin($classBindings, $entrypointSuffixes, $warningThreshold, $errorThreshold)],
         );
     }
