@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ByteKitsune\MagoDoctrineQueryBudget\Analyzer;
 
+use ByteKitsune\MagoDoctrineQueryBudget\QueryBudgetExtension;
 use Mago\Sdk\Analyzer\AfterAnalysisContext;
 use Mago\Sdk\Analyzer\AfterAnalysisHook;
 use Mago\Sdk\Reporting\Issue;
@@ -24,6 +25,7 @@ final class QueryBudgetHook implements AfterAnalysisHook
     public function afterAnalysis(AfterAnalysisContext $context): void
     {
         $program = new Program($context->analysis, $this->bindings);
+        $complete = true;
         foreach ($program->methods as $model) {
             $context->cancellation->throwIfCancelled();
             $suffix = $this->entrypointSuffix($model['file'], $model['class']);
@@ -32,6 +34,7 @@ final class QueryBudgetHook implements AfterAnalysisHook
             if ($name === '__construct' || str_starts_with($name, '__') && $name !== '__invoke') continue;
             if ($suffix === 'Command.php' && !in_array($name, ['execute', '__invoke'], true)) continue;
             $estimate = (new Evaluator($program))->method($model['class'], $name);
+            if ($estimate->cycles !== [] || $estimate->upper === null || $estimate->unknown !== []) $complete = false;
             $location = new SourceLocation($model['file'], new Span($model['node']->name->getStartFilePos(), $model['node']->name->getEndFilePos() + 1));
             $evidence = json_encode([
                 'schema_version' => '1',
@@ -52,6 +55,26 @@ final class QueryBudgetHook implements AfterAnalysisHook
             if ($estimate->upper === null || $estimate->unknown !== []) {
                 $context->report(Level::Warning, 'query-budget-incomplete', Issue::at('Query budget could not be bounded for ' . $model['class'] . '::' . $name, $location)->withNote('query-budget-evidence: ' . $evidence));
             }
+        }
+        $sourceFiles = 0;
+        $firstSource = null;
+        foreach ($context->analysis->files as $file) {
+            if (!str_ends_with($file->file, '.php')) continue;
+            $sourceFiles++;
+            $firstSource ??= $file->getSourceFile();
+        }
+        if ($firstSource !== null) {
+            $attestation = [
+                'schema_version' => '1',
+                'extension' => 'byte-kitsune/doctrine-query-budget',
+                'version' => QueryBudgetExtension::VERSION,
+                'capability' => 'query_budget',
+                'complete' => $complete,
+                'source_files' => $sourceFiles,
+            ];
+            $note = 'extension-attestation: ' . json_encode($attestation, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            $end = $firstSource->contents === '' ? 0 : 1;
+            $context->report(Level::Note, 'analysis-attestation', Issue::at('Doctrine query budget analysis completed.', new SourceLocation($firstSource->path, new Span(0, $end)))->withNote($note));
         }
     }
 
