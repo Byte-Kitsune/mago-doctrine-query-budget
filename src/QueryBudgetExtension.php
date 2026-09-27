@@ -9,6 +9,7 @@ use Mago\Sdk\Extension;
 
 final class QueryBudgetExtension
 {
+    public const VERSION = '0.1.0-beta.4';
     /**
      * @param array<string, string> $classBindings Proven service type/named-target to implementation class.
      * @param list<string> $entrypointSuffixes
@@ -30,7 +31,7 @@ final class QueryBudgetExtension
         return new Extension(
             identifier: 'byte-kitsune/doctrine-query-budget',
             name: 'Doctrine query budget',
-            version: '0.1.0-beta.3',
+            version: self::VERSION,
             analyzerPlugins: [new QueryBudgetPlugin($classBindings, $entrypointSuffixes, $warningThreshold, $errorThreshold)],
         );
     }
