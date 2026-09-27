@@ -14,6 +14,9 @@ use PhpParser\ParserFactory;
 /** An ephemeral index of exact Mago source snapshots for one analysis generation. */
 final class Program
 {
+    private const MAX_PHP_FILES = 25_000;
+    private const MAX_PHP_BYTES = 536_870_912;
+
     /** @var array<string, array{node: Node\Stmt\ClassMethod, class: string, file: string}> */
     public array $methods = [];
     /** @var array<string, array<string, string>> */
@@ -28,7 +31,15 @@ final class Program
     {
         $parser = (new ParserFactory())->createForNewestSupportedVersion();
         $finder = new NodeFinder();
-        if (count($analysis->files) > 10_000) throw new \RuntimeException('PHP source count exceeds query-budget limit.');
+        $phpFiles = 0;
+        $phpBytes = 0;
+        foreach ($analysis->files as $file) {
+            if (!str_ends_with($file->file, '.php')) continue;
+            ++$phpFiles;
+            $phpBytes += $file->size;
+            if ($phpFiles > self::MAX_PHP_FILES) throw new \RuntimeException('PHP source count exceeds query-budget limit of 25000.');
+            if ($phpBytes > self::MAX_PHP_BYTES) throw new \RuntimeException('PHP source bytes exceed query-budget limit of 512 MiB.');
+        }
         foreach ($analysis->files as $file) {
             if (!str_ends_with($file->file, '.php')) continue;
             if ($file->size > 1_048_576) {

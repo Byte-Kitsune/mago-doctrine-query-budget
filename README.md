@@ -7,7 +7,7 @@ Conservative database-statement estimates for PHP entrypoints in [Mago](https://
 Requires PHP 8.2+ and Mago 1.50. Pin the beta in your project:
 
 ```sh
-composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.2
+composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.3
 ```
 
 Add an extension host to `mago.toml`:
@@ -71,13 +71,14 @@ Findings include:
 
 Thresholds use **greater than**, so exactly 10 does not exceed a warning threshold of 10. The `query-budget-evidence` note contains `entrypoint`, `lower_bound`, nullable `upper_bound`, `unknown` reasons and `cycles`. A narrow guarded decreasing self-call can avoid a recursion error, but does not by itself prove a finite query bound.
 
-The current analyzer limits its source model to 10,000 PHP files and its call work/depth; larger projects are not yet supported by this beta. Benchmark and review incomplete findings on your own codebase before making this a required CI gate.
+The source model accepts at most 25,000 PHP files and 512 MiB of PHP source bytes. Each file is limited to 1 MiB; per-entrypoint call work and depth are also bounded. Exceeding a project limit fails the analysis instead of publishing a partial estimate. Benchmark and review incomplete findings on your own codebase before making this a required CI gate.
 
 ## Develop
 
 ```sh
 composer install
 sh tests/smoke.sh
+sh tests/scale-smoke.sh
 ```
 
-The [fictional fixture](tests/corpus) covers bounded DBAL calls, ORM uncertainty and recursion. Licensed under [MIT](LICENSE).
+The [fictional fixture](tests/corpus) covers bounded DBAL calls, ORM uncertainty and recursion. The scale check generates more than 20,000 PHP files and confirms an explicit failure above the 25,000-file limit. Licensed under [MIT](LICENSE).
