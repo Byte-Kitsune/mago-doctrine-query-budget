@@ -7,7 +7,7 @@ Conservative database-statement estimates for PHP entrypoints in [Mago](https://
 Requires PHP 8.2+ and Mago 1.50. Pin the beta in your project:
 
 ```sh
-composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.4
+composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.5
 ```
 
 Add an extension host to `mago.toml`:
@@ -73,7 +73,7 @@ Thresholds use **greater than**, so exactly 10 does not exceed a warning thresho
 
 The source model accepts at most 25,000 PHP files and 512 MiB of PHP source bytes. Each file is limited to 1 MiB; per-entrypoint call work and depth are also bounded. Exceeding a project limit fails the analysis instead of publishing a partial estimate. Benchmark and review incomplete findings on your own codebase before making this a required CI gate.
 
-After a PHP source run, the Analyzer emits one `analysis-attestation` note with a bounded `extension-attestation` payload. It identifies the version, `query_budget` capability, source-file count and whether all selected entrypoint estimates have finite bounds. A gate that requires query-budget coverage should check this note even when no threshold is exceeded.
+After a PHP source run, the Analyzer emits one `analysis-attestation` note with a bounded `extension-attestation` payload. It identifies the version, `query_budget` capability and source-file count. `complete` confirms that the source model finished; an unknown estimate is reported separately as `query-budget-incomplete` and follows the configured warning/error threshold. A gate that requires query-budget coverage should check the attestation even when no threshold is exceeded.
 
 ## Develop
 
