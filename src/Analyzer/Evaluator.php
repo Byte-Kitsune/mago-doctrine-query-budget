@@ -38,6 +38,28 @@ final class Evaluator
         return $this->statements($model['node']->stmts ?? [], $model['class'], $model['file'], $env, [...$stack, $key]);
     }
 
+    /** @param list<string> $stack */
+    public function functionCall(string $name, array $stack = []): Estimate
+    {
+        if (++$this->visits > 25_000) return Estimate::unknown('analysis work limit');
+        $model = $this->program->functionModel($name);
+        if ($model === null) return Estimate::unknown('unresolved function ' . $name);
+        $key = 'function:' . strtolower($model['name']);
+        if (in_array($key, $stack, true)) {
+            if (end($stack) === $key && $this->hasProvenFunctionBreaker($model['node'], $model['name'])) {
+                return Estimate::unknown('guarded recursion has unknown invocation bound: ' . $key);
+            }
+            return new Estimate(0, null, ['unbounded recursion: ' . $key], [$key]);
+        }
+        if (count($stack) >= 48) return Estimate::unknown('call depth limit');
+        $env = [];
+        foreach ($model['node']->params as $parameter) {
+            if (!$parameter->var instanceof Node\Expr\Variable || !is_string($parameter->var->name) || !$parameter->type instanceof Node\Name) continue;
+            $env[$parameter->var->name] = Program::name($parameter->type);
+        }
+        return $this->statements($model['node']->stmts, '', $model['file'], $env, [...$stack, $key]);
+    }
+
     /** @param list<Node\Stmt> $statements @param array<string, string> $env @param list<string> $stack */
     private function statements(array $statements, string $class, string $file, array $env, array $stack): Estimate
     {
@@ -143,7 +165,19 @@ final class Evaluator
         if ($expr instanceof Node\Expr\FuncCall) {
             $sum = new Estimate();
             foreach ($expr->args as $arg) if ($arg instanceof Node\Arg) $sum = $sum->plus($this->expression($arg->value, $class, $file, $env, $stack));
-            return $sum->plus(Estimate::unknown('unresolved function call at ' . $file . ':' . $expr->getStartLine()));
+            if (!$expr->name instanceof Node\Name) return $sum->plus(Estimate::unknown('dynamic function call at ' . $file . ':' . $expr->getStartLine()));
+            $namespaced = $expr->name->getAttribute('namespacedName');
+            $candidates = $namespaced instanceof Node\Name
+                ? [Program::name($namespaced), $expr->name->toString()]
+                : [Program::name($expr->name)];
+            foreach ($candidates as $candidate) {
+                if (isset($this->program->ambiguousFunctions[strtolower($candidate)])) {
+                    return $sum->plus(Estimate::unknown('ambiguous function call ' . $candidate . ' at ' . $file . ':' . $expr->getStartLine()));
+                }
+                if ($this->program->functionModel($candidate) !== null) return $sum->plus($this->functionCall($candidate, $stack));
+            }
+            $name = implode(' or ', $candidates);
+            return $sum->plus(Estimate::unknown('unresolved function call ' . $name . ' at ' . $file . ':' . $expr->getStartLine()));
         }
         $sum = new Estimate();
         foreach ($expr->getSubNodeNames() as $name) {
@@ -219,6 +253,27 @@ final class Evaluator
         foreach ((new NodeFinder())->findInstanceOf($method->stmts ?? [], Node\Expr\MethodCall::class) as $call) {
             if (!$call->name instanceof Node\Identifier || strcasecmp($call->name->toString(), $name) !== 0) continue;
             if (!$call->var instanceof Node\Expr\Variable || $call->var->name !== 'this') return false;
+            $arg = ($call->args[0] ?? null) instanceof Node\Arg ? $call->args[0]->value : null;
+            if (!$arg instanceof Node\Expr\BinaryOp\Minus || !$arg->left instanceof Node\Expr\Variable || $arg->left->name !== $variable || !$arg->right instanceof Node\Scalar\Int_ || $arg->right->value < 1) return false;
+            $found = true;
+        }
+        return $found;
+    }
+
+    private function hasProvenFunctionBreaker(Node\Stmt\Function_ $function, string $name): bool
+    {
+        $parameter = $function->params[0] ?? null;
+        $guard = $function->stmts[0] ?? null;
+        if (!$parameter?->var instanceof Node\Expr\Variable || !is_string($parameter->var->name) || !$guard instanceof Node\Stmt\If_) return false;
+        $variable = $parameter->var->name;
+        $condition = $guard->cond;
+        if (!$condition instanceof Node\Expr\BinaryOp\SmallerOrEqual || !$condition->left instanceof Node\Expr\Variable || $condition->left->name !== $variable || !$condition->right instanceof Node\Scalar\Int_ || $condition->right->value !== 0 || !($guard->stmts[0] ?? null) instanceof Node\Stmt\Return_) return false;
+        $found = false;
+        foreach ((new NodeFinder())->findInstanceOf($function->stmts, Node\Expr\FuncCall::class) as $call) {
+            if (!$call->name instanceof Node\Name) continue;
+            $namespaced = $call->name->getAttribute('namespacedName');
+            $calledName = Program::name($namespaced instanceof Node\Name ? $namespaced : $call->name);
+            if (strcasecmp($calledName, $name) !== 0) continue;
             $arg = ($call->args[0] ?? null) instanceof Node\Arg ? $call->args[0]->value : null;
             if (!$arg instanceof Node\Expr\BinaryOp\Minus || !$arg->left instanceof Node\Expr\Variable || $arg->left->name !== $variable || !$arg->right instanceof Node\Scalar\Int_ || $arg->right->value < 1) return false;
             $found = true;
