@@ -41,8 +41,8 @@ export MAGO_VENDOR_AUTOLOAD=$autoload
 php -r '
     $report = json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
     $codes = array_column($report["issues"], "code");
-    if (count($codes) !== 10 || !in_array("byte-kitsune/doctrine-query-budget/query-budget-exceeded", $codes, true)) {
-        fwrite(STDERR, "Unexpected query-budget result above 20,000 PHP source files\n");
+    if (count($codes) !== 14 || !in_array("byte-kitsune/doctrine-query-budget/query-budget-exceeded", $codes, true)) {
+        fwrite(STDERR, "Unexpected query-budget result above 20,000 PHP source files: " . count($codes) . " issues\n");
         exit(1);
     }
 ' "$work/report.json"
