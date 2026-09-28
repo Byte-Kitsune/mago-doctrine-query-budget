@@ -78,7 +78,10 @@ final class Evaluator
                     $alternative = $alternative->branch($this->expression($elseif->cond, $class, $file, $env, $stack)->plus($this->statements($elseif->stmts, $class, $file, $env, $stack)));
                 }
                 $sum = $sum->plus($condition)->plus($branch->branch($alternative));
-                if ($this->containsDirectExit($statement->stmts) || $statement->else !== null && $this->containsDirectExit($statement->else->stmts)) {
+                $hasExit = $this->containsDirectExit($statement->stmts)
+                    || $statement->else !== null && $this->containsDirectExit($statement->else->stmts);
+                foreach ($statement->elseifs as $elseif) $hasExit = $hasExit || $this->containsDirectExit($elseif->stmts);
+                if ($hasExit) {
                     $earlyExitLower ??= $sum->lower;
                 }
                 continue;
@@ -136,8 +139,8 @@ final class Evaluator
         }
         return new Estimate(
             min($sum->lower, $earlyExitLower, $exceptionExitLower ?? $sum->lower),
-            null,
-            array_values(array_unique([...$sum->unknown, 'conditional early exit at ' . $file])),
+            $sum->upper,
+            $sum->unknown,
             $sum->cycles,
         );
     }
@@ -166,7 +169,15 @@ final class Evaluator
             $sum = new Estimate();
             foreach ($expr->args as $arg) if ($arg instanceof Node\Arg) $sum = $sum->plus($this->expression($arg->value, $class, $file, $env, $stack));
             if ($expr->class instanceof Node\Name && $expr->name instanceof Node\Identifier) {
-                return $sum->plus($this->call(Program::name($expr->class), $expr->name->toString(), $class, $file, $stack));
+                $scope = strtolower($expr->class->toString());
+                $receiver = match ($scope) {
+                    'self' => $class === '' ? null : $class,
+                    'parent' => $this->program->parents[$class] ?? null,
+                    'static' => null,
+                    default => Program::name($expr->class),
+                };
+                if ($receiver === null) return $sum->plus(Estimate::unknown('unresolved static scope ' . $scope . ' at ' . $file . ':' . $expr->getStartLine()));
+                return $sum->plus($this->call($receiver, $expr->name->toString(), $class, $file, $stack));
             }
             return $sum->plus(Estimate::unknown('dynamic static call at ' . $file . ':' . $expr->getStartLine()));
         }

@@ -19,6 +19,14 @@ final class Program
 
     /** @var array<string, array{node: Node\Stmt\ClassMethod, class: string, file: string}> */
     public array $methods = [];
+    /** @var array<string, array{node: Node\Stmt\ClassMethod, class: string, file: string}> */
+    public array $traitMethods = [];
+    /** @var array<string, true> */
+    public array $traitDefinitions = [];
+    /** @var array<string, list<string>> */
+    public array $traitUses = [];
+    /** @var array<string, true> */
+    public array $adaptedTraitUses = [];
     /** @var array<string, array{node: Node\Stmt\Function_, name: string, file: string}> */
     public array $functions = [];
     /** @var array<string, true> */
@@ -60,10 +68,22 @@ final class Program
                 continue;
             }
             $this->indexFunctions($statements, $file->file);
+            foreach ($finder->findInstanceOf($statements, Node\Stmt\Trait_::class) as $trait) {
+                if ($trait->name === null) continue;
+                $traitName = $trait->namespacedName?->toString() ?? $trait->name->toString();
+                $this->traitDefinitions[strtolower($traitName)] = true;
+                $this->indexTraitUses($traitName, $trait->stmts);
+                foreach ($trait->getMethods() as $method) {
+                    $this->traitMethods[self::key($traitName, $method->name->toString())] = [
+                        'node' => $method, 'class' => $traitName, 'file' => $file->file,
+                    ];
+                }
+            }
             foreach ($finder->findInstanceOf($statements, Node\Stmt\Class_::class) as $class) {
                 if ($class->name === null) continue;
                 $className = $class->namespacedName?->toString() ?? $class->name->toString();
                 if ($class->extends !== null) $this->parents[$className] = self::name($class->extends);
+                $this->indexTraitUses($className, $class->stmts);
                 $this->properties[$className] = [];
                 foreach ($class->getProperties() as $property) {
                     $type = $property->type instanceof Node\Name ? self::name($property->type) : null;
@@ -88,6 +108,21 @@ final class Program
                     }
                 }
             }
+        }
+    }
+
+    /** @param list<Node\Stmt> $statements */
+    private function indexTraitUses(string $owner, array $statements): void
+    {
+        foreach ($statements as $statement) {
+            if (!$statement instanceof Node\Stmt\TraitUse) continue;
+            if ($statement->adaptations !== []) {
+                // Aliases and conflict selection change method identity. Keep
+                // this class unknown until those adaptations are modeled.
+                $this->adaptedTraitUses[strtolower($owner)] = true;
+                continue;
+            }
+            foreach ($statement->traits as $trait) $this->traitUses[strtolower($owner)][] = strtolower(self::name($trait));
         }
     }
 
@@ -120,8 +155,38 @@ final class Program
         for ($depth = 0; $depth < 16; ++$depth) {
             $found = $this->methods[self::key($class, $method)] ?? null;
             if ($found !== null) return $found;
+            if (!$this->traitGraphComplete($class, [])) return null;
+            $found = $this->traitMethod($class, $method, $class, []);
+            if ($found !== null) return $found;
             $class = $this->parents[$class] ?? '';
             if ($class === '') break;
+        }
+        return null;
+    }
+
+    /** @param list<string> $visited */
+    private function traitGraphComplete(string $owner, array $visited): bool
+    {
+        $owner = strtolower($owner);
+        if (count($visited) >= 16 || isset($this->adaptedTraitUses[$owner])) return false;
+        foreach ($this->traitUses[$owner] ?? [] as $trait) {
+            if (!isset($this->traitDefinitions[$trait]) || in_array($trait, $visited, true)
+                || !$this->traitGraphComplete($trait, [...$visited, $trait])) return false;
+        }
+        return true;
+    }
+
+    /** @param list<string> $visited */
+    private function traitMethod(string $owner, string $method, string $consumer, array $visited): ?array
+    {
+        $owner = strtolower($owner);
+        if (count($visited) >= 16 || isset($this->adaptedTraitUses[$owner])) return null;
+        foreach ($this->traitUses[$owner] ?? [] as $trait) {
+            if (in_array($trait, $visited, true)) return null;
+            $model = $this->traitMethods[self::key($trait, $method)] ?? null;
+            if ($model !== null) return ['node' => $model['node'], 'class' => $consumer, 'file' => $model['file']];
+            $model = $this->traitMethod($trait, $method, $consumer, [...$visited, $trait]);
+            if ($model !== null) return $model;
         }
         return null;
     }
