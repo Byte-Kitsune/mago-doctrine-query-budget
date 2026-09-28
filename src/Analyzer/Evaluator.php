@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace ByteKitsune\MagoDoctrineQueryBudget\Analyzer;
 
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
+use Mago\Sdk\Analyzer\Type\ScalarType;
+use Mago\Sdk\Analyzer\Type\ScalarTypeKind;
 use Mago\Sdk\Span;
 use PhpParser\Node;
 use PhpParser\NodeFinder;
@@ -65,6 +67,7 @@ final class Evaluator
     {
         $sum = new Estimate();
         $earlyExitLower = null;
+        $exceptionExitLower = null;
         foreach ($statements as $statement) {
             if (++$this->visits > 25_000) return $sum->plus(Estimate::unknown('analysis work limit'));
             if ($statement instanceof Node\Stmt\If_) {
@@ -77,6 +80,27 @@ final class Evaluator
                 $sum = $sum->plus($condition)->plus($branch->branch($alternative));
                 if ($this->containsDirectExit($statement->stmts) || $statement->else !== null && $this->containsDirectExit($statement->else->stmts)) {
                     $earlyExitLower ??= $sum->lower;
+                }
+                continue;
+            }
+            if ($statement instanceof Node\Stmt\TryCatch) {
+                // A call can throw at any point in the try body. The catch may
+                // then execute, so add its worst branch to the full try upper
+                // bound. No query in the try or a catch is guaranteed.
+                $exceptionExitLower ??= $sum->lower;
+                $try = $this->statements($statement->stmts, $class, $file, $env, $stack);
+                $catches = new Estimate();
+                foreach ($statement->catches as $catch) {
+                    $catchEnv = $env;
+                    if ($catch->var instanceof Node\Expr\Variable && is_string($catch->var->name)) {
+                        unset($catchEnv[$catch->var->name]);
+                    }
+                    $catches = $catches->branch($this->statements($catch->stmts, $class, $file, $catchEnv, $stack));
+                }
+                $body = $try->plus($catches);
+                $sum = $sum->plus(new Estimate(0, $body->upper, $body->unknown, $body->cycles));
+                if ($statement->finally !== null) {
+                    $sum = $sum->plus($this->statements($statement->finally->stmts, $class, $file, $env, $stack));
                 }
                 continue;
             }
@@ -105,8 +129,13 @@ final class Evaluator
             if ($statement instanceof Node\Stmt\Nop) continue;
             $sum = $sum->plus(Estimate::unknown('unsupported statement ' . $statement::class . ' at ' . $file . ':' . $statement->getStartLine()));
         }
-        return $earlyExitLower === null ? $sum : new Estimate(
-            min($sum->lower, $earlyExitLower),
+        if ($earlyExitLower === null) {
+            return $exceptionExitLower === null ? $sum : new Estimate(
+                min($sum->lower, $exceptionExitLower), $sum->upper, $sum->unknown, $sum->cycles,
+            );
+        }
+        return new Estimate(
+            min($sum->lower, $earlyExitLower, $exceptionExitLower ?? $sum->lower),
             null,
             array_values(array_unique([...$sum->unknown, 'conditional early exit at ' . $file])),
             $sum->cycles,
@@ -176,6 +205,7 @@ final class Evaluator
                 }
                 if ($this->program->functionModel($candidate) !== null) return $sum->plus($this->functionCall($candidate, $stack));
             }
+            if ($this->isScalarBuiltin($expr, $file)) return $sum;
             $name = implode(' or ', $candidates);
             return $sum->plus(Estimate::unknown('unresolved function call ' . $name . ' at ' . $file . ':' . $expr->getStartLine()));
         }
@@ -190,6 +220,26 @@ final class Evaluator
             }
         }
         return $sum;
+    }
+
+    private function isScalarBuiltin(Node\Expr\FuncCall $call, string $file): bool
+    {
+        // A namespaced function may override a builtin outside this source
+        // snapshot. Only an explicit global call has stable PHP semantics.
+        if (!$call->name instanceof Node\Name\FullyQualified || !in_array(strtolower($call->name->toString()), ['mb_trim', 'max', 'min'], true)) return false;
+        $analysis = $this->program->analysis->getFile($file);
+        foreach ($call->args as $argument) {
+            if (!$argument instanceof Node\Arg || $argument->unpack) return false;
+            $value = $argument->value;
+            if ($value instanceof Node\Scalar\String_ || $value instanceof Node\Scalar\Int_ || $value instanceof Node\Scalar\Float_) continue;
+            if (!$value instanceof Node\Expr\Variable || !is_string($value->name) || $analysis === null) return false;
+            $type = $analysis->getExpressionType(new Span($value->getStartFilePos(), $value->getEndFilePos() + 1));
+            if ($type === null) return false;
+            foreach ($type->atomicTypes as $atomic) {
+                if (!$atomic instanceof ScalarType || !in_array($atomic->kind, [ScalarTypeKind::Boolean, ScalarTypeKind::Integer, ScalarTypeKind::Float, ScalarTypeKind::String], true)) return false;
+            }
+        }
+        return true;
     }
 
     /** @param array<string, string> $env */
