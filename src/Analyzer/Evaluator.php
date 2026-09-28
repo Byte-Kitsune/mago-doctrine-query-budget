@@ -16,7 +16,7 @@ final class Evaluator
 {
     private int $visits = 0;
 
-    public function __construct(private readonly Program $program) {}
+    public function __construct(private readonly Program $program, private readonly bool $assumeGlobalScalarBuiltins = false) {}
 
     /** @param list<string> $stack */
     public function method(string $class, string $name, array $stack = []): Estimate
@@ -216,7 +216,7 @@ final class Evaluator
                 }
                 if ($this->program->functionModel($candidate) !== null) return $sum->plus($this->functionCall($candidate, $stack));
             }
-            if ($this->isScalarBuiltin($expr, $file)) return $sum;
+            if ($this->isScalarBuiltin($expr, $class, $file)) return $sum;
             $name = implode(' or ', $candidates);
             return $sum->plus(Estimate::unknown('unresolved function call ' . $name . ' at ' . $file . ':' . $expr->getStartLine()));
         }
@@ -233,11 +233,22 @@ final class Evaluator
         return $sum;
     }
 
-    private function isScalarBuiltin(Node\Expr\FuncCall $call, string $file): bool
+    private function isScalarBuiltin(Node\Expr\FuncCall $call, string $class, string $file): bool
     {
-        // A namespaced function may override a builtin outside this source
-        // snapshot. Only an explicit global call has stable PHP semantics.
-        if (!$call->name instanceof Node\Name\FullyQualified || !in_array(strtolower($call->name->toString()), ['mb_trim', 'max', 'min'], true)) return false;
+        if (!$call->name instanceof Node\Name || !in_array(strtolower($call->name->toString()), ['mb_trim', 'max', 'min'], true)) return false;
+        if (!$call->name instanceof Node\Name\FullyQualified) {
+            if (!$call->name->isUnqualified() || $class === '') return false;
+            $namespaceEnd = strrpos($class, '\\');
+            if ($namespaceEnd !== false) {
+                // An application namespace can override the global builtin.
+                // This opt-in is an operator assertion about code outside the
+                // complete source snapshot, never an inference from imports.
+                if (!$this->assumeGlobalScalarBuiltins) return false;
+                $resolved = $call->name->getAttribute('namespacedName');
+                $expected = substr($class, 0, $namespaceEnd) . '\\' . $call->name->toString();
+                if (!$resolved instanceof Node\Name || strcasecmp(Program::name($resolved), $expected) !== 0) return false;
+            }
+        }
         $analysis = $this->program->analysis->getFile($file);
         foreach ($call->args as $argument) {
             if (!$argument instanceof Node\Arg || $argument->unpack) return false;

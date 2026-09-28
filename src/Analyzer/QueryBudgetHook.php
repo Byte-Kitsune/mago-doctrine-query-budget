@@ -14,17 +14,25 @@ use Mago\Sdk\Span;
 
 final class QueryBudgetHook implements AfterAnalysisHook
 {
-    /** @param array<string, string> $bindings @param list<string> $suffixes */
+    /** @param array<string, string> $bindings @param list<string> $suffixes @param list<string> $inspectEntrypoints */
     public function __construct(
         private readonly array $bindings,
         private readonly array $suffixes,
         private readonly int $warning,
         private readonly int $error,
+        private readonly array $inspectEntrypoints,
+        private readonly int $incompleteIssueLimit,
+        private readonly bool $assumeGlobalScalarBuiltins,
     ) {}
 
     public function afterAnalysis(AfterAnalysisContext $context): void
     {
         $program = new Program($context->analysis, $this->bindings);
+        $requested = [];
+        foreach ($this->inspectEntrypoints as $selection) $requested[strtolower($selection)] = false;
+        $entrypointsAnalyzed = 0;
+        $incompleteEntrypoints = 0;
+        $reportedIncomplete = 0;
         foreach ($program->methods as $model) {
             $context->cancellation->throwIfCancelled();
             $suffix = $this->entrypointSuffix($model['file'], $model['class']);
@@ -32,7 +40,13 @@ final class QueryBudgetHook implements AfterAnalysisHook
             $name = $model['node']->name->toString();
             if ($name === '__construct' || str_starts_with($name, '__') && $name !== '__invoke') continue;
             if ($suffix === 'Command.php' && !in_array($name, ['execute', '__invoke'], true)) continue;
-            $estimate = (new Evaluator($program))->method($model['class'], $name);
+            $classKey = strtolower($model['class']);
+            $methodKey = strtolower($model['class'] . '::' . $name);
+            if ($requested !== [] && !array_key_exists($classKey, $requested) && !array_key_exists($methodKey, $requested)) continue;
+            if (array_key_exists($classKey, $requested)) $requested[$classKey] = true;
+            if (array_key_exists($methodKey, $requested)) $requested[$methodKey] = true;
+            ++$entrypointsAnalyzed;
+            $estimate = (new Evaluator($program, $this->assumeGlobalScalarBuiltins))->method($model['class'], $name);
             $location = new SourceLocation($model['file'], new Span($model['node']->name->getStartFilePos(), $model['node']->name->getEndFilePos() + 1));
             $evidence = json_encode([
                 'schema_version' => '1',
@@ -42,6 +56,9 @@ final class QueryBudgetHook implements AfterAnalysisHook
                 'unknown' => array_slice($estimate->unknown, 0, 8),
                 'cycles' => array_slice($estimate->cycles, 0, 8),
             ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            if ($requested !== []) {
+                $context->report(Level::Note, 'query-budget-inspection', Issue::at('Query budget for ' . $model['class'] . '::' . $name . ': ' . $estimate->lower . '..' . ($estimate->upper ?? 'unknown') . ' database statements.', $location)->withNote('query-budget-evidence: ' . $evidence));
+            }
             if ($estimate->cycles !== []) {
                 $context->report(Level::Error, 'recursive-call', Issue::at('Unbounded recursive call path from ' . $model['class'] . '::' . $name, $location)->withNote('query-budget-evidence: ' . $evidence));
             }
@@ -51,7 +68,11 @@ final class QueryBudgetHook implements AfterAnalysisHook
                 $context->report(Level::Warning, 'query-budget-exceeded', Issue::at('Database statement estimate exceeds the warning threshold ' . $this->warning, $location)->withNote('query-budget-evidence: ' . $evidence));
             }
             if ($estimate->upper === null || $estimate->unknown !== []) {
-                $context->report(Level::Warning, 'query-budget-incomplete', Issue::at('Query budget could not be bounded for ' . $model['class'] . '::' . $name, $location)->withNote('query-budget-evidence: ' . $evidence));
+                ++$incompleteEntrypoints;
+                if ($reportedIncomplete < $this->incompleteIssueLimit) {
+                    ++$reportedIncomplete;
+                    $context->report(Level::Warning, 'query-budget-incomplete', Issue::at('Query budget could not be bounded for ' . $model['class'] . '::' . $name, $location)->withNote('query-budget-evidence: ' . $evidence));
+                }
             }
         }
         $sourceFiles = 0;
@@ -62,6 +83,21 @@ final class QueryBudgetHook implements AfterAnalysisHook
             $firstSource ??= $file->getSourceFile();
         }
         if ($firstSource !== null) {
+            $summaryLocation = new SourceLocation($firstSource->path, new Span(0, $firstSource->contents === '' ? 0 : 1));
+            $omittedIncomplete = $incompleteEntrypoints - $reportedIncomplete;
+            if ($omittedIncomplete > 0) {
+                $summary = [
+                    'schema_version' => '1',
+                    'incomplete_entrypoints' => $incompleteEntrypoints,
+                    'reported_entrypoints' => $reportedIncomplete,
+                    'omitted_entrypoints' => $omittedIncomplete,
+                ];
+                $context->report(Level::Warning, 'query-budget-incomplete-summary', Issue::at($omittedIncomplete . ' incomplete query budgets omitted; ' . $reportedIncomplete . ' detailed warning(s) shown.', $summaryLocation)->withNote('query-budget-summary: ' . json_encode($summary, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)));
+            }
+            foreach ($this->inspectEntrypoints as $selection) {
+                if ($requested[strtolower($selection)] ?? false) continue;
+                $context->report(Level::Error, 'inspection-target-not-found', Issue::at('No public controller or command entrypoint matches ' . $selection . '.', $summaryLocation));
+            }
             $attestation = [
                 'schema_version' => '1',
                 'extension' => 'byte-kitsune/doctrine-query-budget',
@@ -69,10 +105,15 @@ final class QueryBudgetHook implements AfterAnalysisHook
                 'capability' => 'query_budget',
                 'complete' => true,
                 'source_files' => $sourceFiles,
+                'entrypoints_analyzed' => $entrypointsAnalyzed,
+                'incomplete_entrypoints' => $incompleteEntrypoints,
+                'reported_incomplete_entrypoints' => $reportedIncomplete,
+                'omitted_incomplete_entrypoints' => $omittedIncomplete,
+                'requested_inspections' => count($requested),
+                'matched_inspections' => count(array_filter($requested)),
             ];
             $note = 'extension-attestation: ' . json_encode($attestation, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-            $end = $firstSource->contents === '' ? 0 : 1;
-            $context->report(Level::Note, 'analysis-attestation', Issue::at('Doctrine query budget analysis completed.', new SourceLocation($firstSource->path, new Span(0, $end)))->withNote($note));
+            $context->report(Level::Note, 'analysis-attestation', Issue::at('Doctrine query budget analysis completed.', $summaryLocation)->withNote($note));
         }
     }
 

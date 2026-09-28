@@ -10,12 +10,15 @@ use Mago\Sdk\Analyzer\PluginRegistry;
 
 final class QueryBudgetPlugin implements Plugin
 {
-    /** @param array<string, string> $bindings @param list<string> $suffixes */
+    /** @param array<string, string> $bindings @param list<string> $suffixes @param list<string> $inspectEntrypoints */
     public function __construct(
         private readonly array $bindings,
         private readonly array $suffixes,
         private readonly int $warning,
         private readonly int $error,
+        private readonly array $inspectEntrypoints,
+        private readonly int $incompleteIssueLimit,
+        private readonly bool $assumeGlobalScalarBuiltins,
     ) {}
 
     public function getDefinition(): PluginDefinition
@@ -25,6 +28,6 @@ final class QueryBudgetPlugin implements Plugin
 
     public function register(PluginRegistry $registry): void
     {
-        $registry->registerAfterAnalysisHook(new QueryBudgetHook($this->bindings, $this->suffixes, $this->warning, $this->error));
+        $registry->registerAfterAnalysisHook(new QueryBudgetHook($this->bindings, $this->suffixes, $this->warning, $this->error, $this->inspectEntrypoints, $this->incompleteIssueLimit, $this->assumeGlobalScalarBuiltins));
     }
 }

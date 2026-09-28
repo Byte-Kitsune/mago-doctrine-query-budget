@@ -19,6 +19,8 @@ final class UnqualifiedBuiltinController
     public function index(): void
     {
         max(1, 2);
+        min(1, 2);
+        mb_trim('search term');
     }
 }
 
