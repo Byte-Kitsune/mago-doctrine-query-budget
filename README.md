@@ -1,5 +1,8 @@
 # Mago Doctrine Query Budget
 
+[![Tests](https://github.com/Byte-Kitsune/mago-doctrine-query-budget/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/Byte-Kitsune/mago-doctrine-query-budget/actions/workflows/check.yml)
+[![Security Check](https://github.com/Byte-Kitsune/mago-doctrine-query-budget/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/Byte-Kitsune/mago-doctrine-query-budget/actions/workflows/security.yml)
+
 Conservative database-statement estimates for PHP entrypoints in [Mago](https://mago.carthage.software/1.50.0/en/). This beta is an **Analyzer** plugin. It follows modeled calls from controllers and commands, reports lower and upper bounds, and marks unknown paths explicitly. It never executes PHP or connects to a database.
 
 The [runnable report example](examples/README.md) shows why two harmless-looking service calls can cross a query budget, and why an ORM result cannot always get a finite static upper bound.
