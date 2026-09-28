@@ -23,11 +23,12 @@ final class QueryBudgetHook implements AfterAnalysisHook
         private readonly array $inspectEntrypoints,
         private readonly int $incompleteIssueLimit,
         private readonly bool $assumeGlobalScalarBuiltins,
+        private readonly array $constructorBindings,
     ) {}
 
     public function afterAnalysis(AfterAnalysisContext $context): void
     {
-        $program = new Program($context->analysis, $this->bindings);
+        $program = new Program($context->analysis, $this->bindings, $this->constructorBindings);
         $requested = [];
         foreach ($this->inspectEntrypoints as $selection) $requested[strtolower($selection)] = false;
         $entrypointsAnalyzed = 0;
@@ -38,10 +39,14 @@ final class QueryBudgetHook implements AfterAnalysisHook
         foreach ($methods as $model) {
             $context->cancellation->throwIfCancelled();
             $suffix = $this->entrypointSuffix($model['file'], $model['class']);
-            if ($suffix === null || !$model['node']->isPublic()) continue;
+            if ($suffix === null) continue;
             $name = $model['node']->name->toString();
             if ($name === '__construct' || str_starts_with($name, '__') && $name !== '__invoke') continue;
-            if ($suffix === 'Command.php' && !in_array($name, ['execute', '__invoke'], true)) continue;
+            if ($suffix === 'Command.php') {
+                if ($name === 'execute' && !$model['node']->isPublic() && !$model['node']->isProtected()) continue;
+                if ($name === '__invoke' && !$model['node']->isPublic()) continue;
+                if (!in_array($name, ['execute', '__invoke'], true)) continue;
+            } elseif (!$model['node']->isPublic()) continue;
             $classKey = strtolower($model['class']);
             $methodKey = strtolower($model['class'] . '::' . $name);
             if ($requested !== [] && !array_key_exists($classKey, $requested) && !array_key_exists($methodKey, $requested)) continue;
