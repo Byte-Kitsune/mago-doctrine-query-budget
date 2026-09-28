@@ -39,6 +39,11 @@ php -r '
     foreach ($report["issues"] as $issue) $issues[$issue["code"]][] = $issue;
     $prefix = "byte-kitsune/doctrine-query-budget/";
     if (count($issues[$prefix . "query-budget-incomplete"] ?? []) !== 2 || count($issues[$prefix . "query-budget-incomplete-summary"] ?? []) !== 1) exit(1);
+    $names = array_map(static function (array $issue): string {
+        $note = $issue["notes"][0];
+        return json_decode(substr($note, strlen("query-budget-evidence: ")), true, 512, JSON_THROW_ON_ERROR)["entrypoint"];
+    }, $issues[$prefix . "query-budget-incomplete"]);
+    if ($names !== ["App\\Unknown00Controller::index", "App\\Unknown01Controller::index"]) exit(1);
     $summary = json_decode(substr($issues[$prefix . "query-budget-incomplete-summary"][0]["notes"][0], strlen("query-budget-summary: ")), true, 512, JSON_THROW_ON_ERROR);
     $attestation = json_decode(substr($issues[$prefix . "analysis-attestation"][0]["notes"][0], strlen("extension-attestation: ")), true, 512, JSON_THROW_ON_ERROR);
     if ($summary["incomplete_entrypoints"] !== 30 || $summary["reported_entrypoints"] !== 2 || $summary["omitted_entrypoints"] !== 28 || $attestation["omitted_incomplete_entrypoints"] !== 28) exit(1);
