@@ -14,6 +14,8 @@ foreach ($report['issues'] as $issue) {
 }
 if (($bounds['App\UnqualifiedBuiltinController::index'] ?? null) !== [0, 0]
     || ($bounds['App\Shadow\ShadowBuiltinController::index'] ?? null) !== [1, 1]
+    || ($bounds['GlobalBuiltinController::index'] ?? null) !== [0, 0]
+    || ($bounds['GlobalAliasController::index'] ?? null) !== [0, null]
     || ($unknowns['App\UnqualifiedBuiltinController::index'] ?? null) !== []) {
     throw new RuntimeException('Scalar builtin opt-in or namespaced override was not resolved correctly.');
 }

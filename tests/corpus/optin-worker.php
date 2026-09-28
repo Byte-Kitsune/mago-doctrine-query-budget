@@ -8,6 +8,6 @@ use Mago\Sdk\Worker;
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 (new Worker(QueryBudgetExtension::create(
-    inspectEntrypoints: ['App\UnqualifiedBuiltinController::index', 'App\Shadow\ShadowBuiltinController::index'],
+    inspectEntrypoints: ['App\UnqualifiedBuiltinController::index', 'App\Shadow\ShadowBuiltinController::index', 'GlobalAliasController::index', 'GlobalBuiltinController::index'],
     assumeGlobalScalarBuiltins: true,
 )))->run();

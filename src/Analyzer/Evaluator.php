@@ -239,14 +239,14 @@ final class Evaluator
         if (!$call->name instanceof Node\Name\FullyQualified) {
             if (!$call->name->isUnqualified() || $class === '') return false;
             $namespaceEnd = strrpos($class, '\\');
+            $resolved = $call->name->getAttribute('namespacedName');
+            $expected = $namespaceEnd === false ? $call->name->toString() : substr($class, 0, $namespaceEnd) . '\\' . $call->name->toString();
+            if (!$resolved instanceof Node\Name || strcasecmp(Program::name($resolved), $expected) !== 0) return false;
             if ($namespaceEnd !== false) {
                 // An application namespace can override the global builtin.
                 // This opt-in is an operator assertion about code outside the
                 // complete source snapshot, never an inference from imports.
                 if (!$this->assumeGlobalScalarBuiltins) return false;
-                $resolved = $call->name->getAttribute('namespacedName');
-                $expected = substr($class, 0, $namespaceEnd) . '\\' . $call->name->toString();
-                if (!$resolved instanceof Node\Name || strcasecmp(Program::name($resolved), $expected) !== 0) return false;
             }
         }
         $analysis = $this->program->analysis->getFile($file);

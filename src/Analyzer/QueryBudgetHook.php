@@ -33,7 +33,9 @@ final class QueryBudgetHook implements AfterAnalysisHook
         $entrypointsAnalyzed = 0;
         $incompleteEntrypoints = 0;
         $reportedIncomplete = 0;
-        foreach ($program->methods as $model) {
+        $methods = $program->methods;
+        ksort($methods, SORT_STRING);
+        foreach ($methods as $model) {
             $context->cancellation->throwIfCancelled();
             $suffix = $this->entrypointSuffix($model['file'], $model['class']);
             if ($suffix === null || !$model['node']->isPublic()) continue;
@@ -77,10 +79,14 @@ final class QueryBudgetHook implements AfterAnalysisHook
         }
         $sourceFiles = 0;
         $firstSource = null;
+        $firstFile = null;
         foreach ($context->analysis->files as $file) {
             if (!str_ends_with($file->file, '.php')) continue;
             $sourceFiles++;
-            $firstSource ??= $file->getSourceFile();
+            if ($firstFile === null || strcmp($file->file, $firstFile) < 0) {
+                $firstFile = $file->file;
+                $firstSource = $file->getSourceFile();
+            }
         }
         if ($firstSource !== null) {
             $summaryLocation = new SourceLocation($firstSource->path, new Span(0, $firstSource->contents === '' ? 0 : 1));
