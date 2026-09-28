@@ -19,6 +19,10 @@ final class Program
 
     /** @var array<string, array{node: Node\Stmt\ClassMethod, class: string, file: string}> */
     public array $methods = [];
+    /** @var array<string, array{node: Node\Stmt\Function_, name: string, file: string}> */
+    public array $functions = [];
+    /** @var array<string, true> */
+    public array $ambiguousFunctions = [];
     /** @var array<string, array<string, string>> */
     public array $properties = [];
     /** @var array<string, string> */
@@ -55,6 +59,7 @@ final class Program
                 $this->parseFailures[$file->file] = $error::class;
                 continue;
             }
+            $this->indexFunctions($statements, $file->file);
             foreach ($finder->findInstanceOf($statements, Node\Stmt\Class_::class) as $class) {
                 if ($class->name === null) continue;
                 $className = $class->namespacedName?->toString() ?? $class->name->toString();
@@ -84,6 +89,30 @@ final class Program
                 }
             }
         }
+    }
+
+    /** @param list<Node\Stmt> $statements */
+    private function indexFunctions(array $statements, string $file): void
+    {
+        foreach ($statements as $statement) {
+            if ($statement instanceof Node\Stmt\Namespace_) {
+                $this->indexFunctions($statement->stmts, $file);
+            } elseif ($statement instanceof Node\Stmt\Function_) {
+                $name = $statement->namespacedName?->toString() ?? $statement->name->toString();
+                $key = strtolower($name);
+                if (isset($this->functions[$key]) || isset($this->ambiguousFunctions[$key])) {
+                    unset($this->functions[$key]);
+                    $this->ambiguousFunctions[$key] = true;
+                } else {
+                    $this->functions[$key] = ['node' => $statement, 'name' => $name, 'file' => $file];
+                }
+            }
+        }
+    }
+
+    public function functionModel(string $name): ?array
+    {
+        return $this->functions[strtolower(ltrim($name, '\\'))] ?? null;
     }
 
     public function method(string $class, string $method): ?array
