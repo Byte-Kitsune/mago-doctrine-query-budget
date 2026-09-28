@@ -12,7 +12,7 @@ The [runnable report example](examples/README.md) shows why two harmless-looking
 Requires PHP 8.2+ and Mago 1.50. Pin the beta in your project:
 
 ```sh
-composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.7
+composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.8
 ```
 
 Add an extension host to `mago.toml`:
@@ -60,11 +60,11 @@ $queryBudget = QueryBudgetExtension::create(
 (new Worker($queryBudget))->run();
 ```
 
-Use one `Worker` for all your installed extensions if they share a host. Symfony bindings resolve injected service types; they do not resolve free PHP function calls.
+Use one `Worker` for all your installed extensions if they share a host. Pass `classBindings()` to this extension explicitly: installing the Symfony extension beside it does not transfer bindings automatically. If a budget stops at an injected interface, inspect the service map's `incomplete` reasons and the exact binding key. Symfony bindings resolve injected service types; they do not resolve free PHP function calls.
 
 ## What the estimate means
 
-The model counts selected Doctrine DBAL `Connection`, `Statement`, and DBAL query-builder execution methods as one statement each. Constructing a query is not execution. ORM `Query` executions and standard repository methods are recognized, but cache, hydration and lazy-loading effects leave their upper bound unknown. Calls to project-defined top-level functions are followed through the same source snapshot. `try/catch/finally` bodies are followed with a conservative upper bound: a catch may run after part of the try body, and finally runs afterward. A source-visible non-Doctrine search method inside a try block can therefore be proven query-free.
+The model counts selected Doctrine DBAL `Connection`, `Statement`, and DBAL query-builder execution methods as one statement each. Constructing a query is not execution. ORM `Query` executions and standard repository methods are recognized, but cache, hydration and lazy-loading effects leave their upper bound unknown. Calls to project-defined top-level functions and unadapted trait methods are followed through the same source snapshot. `self::` and `parent::` resolve against source-visible classes. Trait adaptations and late-bound `static::` remain incomplete. Conditional early returns keep a finite upper bound when all reachable calls are modeled. `try/catch/finally` bodies are followed with a conservative upper bound: a catch may run after part of the try body, and finally runs afterward. A source-visible non-Doctrine search method inside a try block can therefore be proven query-free.
 
 Explicit global calls to `\mb_trim`, `\max`, and `\min` are treated as query-free only for literal scalar arguments or variables that Mago proves scalar. Unqualified namespaced calls may resolve to application functions outside the analyzed snapshot, so they remain incomplete unless the function is source-visible. Callback functions such as `array_map` and `array_filter`, external collection methods, and response serialization are not assumed query-free. Their callbacks or lazy work can reach Doctrine; unresolved calls keep their names in the evidence. Unknown receivers, dynamic calls, other unsupported control flow and unbounded loops also remain incomplete. Static estimates are not measured SQL counts.
 

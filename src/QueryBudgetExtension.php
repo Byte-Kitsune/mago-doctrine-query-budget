@@ -9,7 +9,7 @@ use Mago\Sdk\Extension;
 
 final class QueryBudgetExtension
 {
-    public const VERSION = '0.1.0-beta.7';
+    public const VERSION = '0.1.0-beta.8';
     /**
      * @param array<string, string> $classBindings Proven service type/named-target to implementation class.
      * @param list<string> $entrypointSuffixes
