@@ -9,9 +9,10 @@ use Mago\Sdk\Extension;
 
 final class QueryBudgetExtension
 {
-    public const VERSION = '0.1.0-beta.10';
+    public const VERSION = '0.1.0-beta.11';
     /**
      * @param array<string, string> $classBindings Proven service type/named-target to implementation class.
+     * @param array<string, array<int, ?string>> $constructorBindings Compiled service references by owner class and constructor position.
      * @param list<string> $entrypointSuffixes
      * @param list<string> $inspectEntrypoints Exact class names, optionally followed by ::method.
      */
@@ -23,6 +24,7 @@ final class QueryBudgetExtension
         array $inspectEntrypoints = [],
         int $incompleteIssueLimit = 25,
         bool $assumeGlobalScalarBuiltins = false,
+        array $constructorBindings = [],
     ): Extension {
         if ($warningThreshold < 1 || $errorThreshold < $warningThreshold || $entrypointSuffixes === [] || $incompleteIssueLimit < 0 || $incompleteIssueLimit > 1000) {
             throw new \InvalidArgumentException('Invalid query budget thresholds or selectors.');
@@ -30,6 +32,14 @@ final class QueryBudgetExtension
         foreach ($entrypointSuffixes as $suffix) {
             if (!is_string($suffix) || $suffix === '' || str_contains($suffix, '/') || !str_ends_with($suffix, '.php')) {
                 throw new \InvalidArgumentException('Entrypoint selectors must be PHP filename suffixes.');
+            }
+        }
+        foreach ($constructorBindings as $owner => $positions) {
+            if (!is_string($owner) || $owner === '' || !is_array($positions)) throw new \InvalidArgumentException('Invalid constructor binding owner.');
+            foreach ($positions as $position => $class) {
+                if (!is_int($position) || $position < 0 || $position > 127 || $class !== null && (!is_string($class) || $class === '')) {
+                    throw new \InvalidArgumentException('Invalid constructor binding position or class.');
+                }
             }
         }
         if (count($inspectEntrypoints) > 32) throw new \InvalidArgumentException('At most 32 entrypoints may be inspected.');
@@ -50,7 +60,7 @@ final class QueryBudgetExtension
             identifier: 'byte-kitsune/doctrine-query-budget',
             name: 'Doctrine query budget',
             version: self::VERSION,
-            analyzerPlugins: [new QueryBudgetPlugin($classBindings, $entrypointSuffixes, $warningThreshold, $errorThreshold, array_values($normalized), $incompleteIssueLimit, $assumeGlobalScalarBuiltins)],
+            analyzerPlugins: [new QueryBudgetPlugin($classBindings, $entrypointSuffixes, $warningThreshold, $errorThreshold, array_values($normalized), $incompleteIssueLimit, $assumeGlobalScalarBuiltins, $constructorBindings)],
         );
     }
 }

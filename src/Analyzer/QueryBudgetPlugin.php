@@ -19,6 +19,7 @@ final class QueryBudgetPlugin implements Plugin
         private readonly array $inspectEntrypoints,
         private readonly int $incompleteIssueLimit,
         private readonly bool $assumeGlobalScalarBuiltins,
+        private readonly array $constructorBindings,
     ) {}
 
     public function getDefinition(): PluginDefinition
@@ -28,6 +29,6 @@ final class QueryBudgetPlugin implements Plugin
 
     public function register(PluginRegistry $registry): void
     {
-        $registry->registerAfterAnalysisHook(new QueryBudgetHook($this->bindings, $this->suffixes, $this->warning, $this->error, $this->inspectEntrypoints, $this->incompleteIssueLimit, $this->assumeGlobalScalarBuiltins));
+        $registry->registerAfterAnalysisHook(new QueryBudgetHook($this->bindings, $this->suffixes, $this->warning, $this->error, $this->inspectEntrypoints, $this->incompleteIssueLimit, $this->assumeGlobalScalarBuiltins, $this->constructorBindings));
     }
 }

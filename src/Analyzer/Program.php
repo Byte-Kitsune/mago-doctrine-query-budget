@@ -38,8 +38,14 @@ final class Program
     /** @var array<string, string> */
     public array $parseFailures = [];
 
-    /** @param array<string, string> $bindings */
-    public function __construct(public readonly ProjectAnalysis $analysis, private readonly array $bindings)
+    /** @param array<string, string> $bindings
+     *  @param array<string, array<int, ?string>> $constructorBindings
+     */
+    public function __construct(
+        public readonly ProjectAnalysis $analysis,
+        private readonly array $bindings,
+        private readonly array $constructorBindings = [],
+    )
     {
         $parser = (new ParserFactory())->createForNewestSupportedVersion();
         $finder = new NodeFinder();
@@ -85,16 +91,22 @@ final class Program
                 if ($class->extends !== null) $this->parents[$className] = self::name($class->extends);
                 $this->indexTraitUses($className, $class->stmts);
                 $this->properties[$className] = [];
+                $declaredPropertyTypes = [];
                 foreach ($class->getProperties() as $property) {
                     $type = $property->type instanceof Node\Name ? self::name($property->type) : null;
-                    if ($type !== null) foreach ($property->props as $prop) $this->properties[$className][$prop->name->toString()] = $this->bindings[$type] ?? $type;
+                    if ($type !== null) foreach ($property->props as $prop) {
+                        $name = $prop->name->toString();
+                        $declaredPropertyTypes[$name] = $type;
+                        $this->properties[$className][$name] = $this->bindings[$type] ?? $type;
+                    }
                 }
                 foreach ($class->getMethods() as $method) {
                     $key = self::key($className, $method->name->toString());
                     $this->methods[$key] = ['node' => $method, 'class' => $className, 'file' => $file->file];
                     if (strtolower($method->name->toString()) === '__construct') {
-                        foreach ($method->params as $parameter) {
-                            if ($parameter->flags === 0 || !$parameter->var instanceof Node\Expr\Variable || !is_string($parameter->var->name) || !$parameter->type instanceof Node\Name) continue;
+                        $parameterClasses = [];
+                        foreach ($method->params as $position => $parameter) {
+                            if (!$parameter->var instanceof Node\Expr\Variable || !is_string($parameter->var->name) || !$parameter->type instanceof Node\Name) continue;
                             $type = self::name($parameter->type);
                             $target = null;
                             foreach ($parameter->attrGroups as $group) foreach ($group->attrs as $attribute) {
@@ -103,7 +115,34 @@ final class Program
                                 }
                             }
                             $lookup = $target === null ? $type : $type . ' $' . $target;
-                            $this->properties[$className][$parameter->var->name] = $this->bindings[$lookup] ?? $type;
+                            $hasCompiledBinding = array_key_exists($position, $this->constructorBindings[$className] ?? []);
+                            $class = $hasCompiledBinding
+                                ? $this->constructorBindings[$className][$position] : ($this->bindings[$lookup] ?? $type);
+                            $parameterClasses[$parameter->var->name] = $class;
+                            if ($hasCompiledBinding) foreach ($declaredPropertyTypes as $property => $declaredType) {
+                                if ($declaredType === $type) unset($this->properties[$className][$property]);
+                            }
+                            if ($parameter->flags === 0) continue;
+                            if ($class === null) unset($this->properties[$className][$parameter->var->name]);
+                            else $this->properties[$className][$parameter->var->name] = $class;
+                        }
+                        // Ordinary non-promoted constructor assignments are
+                        // common in Symfony services. Only direct assignments
+                        // from a typed parameter have a proven receiver class.
+                        foreach ($method->stmts ?? [] as $statement) {
+                            if (!$statement instanceof Node\Stmt\Expression || !$statement->expr instanceof Node\Expr\Assign) continue;
+                            $assignment = $statement->expr;
+                            if (!$assignment->var instanceof Node\Expr\PropertyFetch
+                                || !$assignment->var->var instanceof Node\Expr\Variable
+                                || $assignment->var->var->name !== 'this'
+                                || !$assignment->var->name instanceof Node\Identifier
+                                || !$assignment->expr instanceof Node\Expr\Variable
+                                || !is_string($assignment->expr->name)
+                                || !array_key_exists($assignment->expr->name, $parameterClasses)) continue;
+                            $property = $assignment->var->name->toString();
+                            $class = $parameterClasses[$assignment->expr->name];
+                            if ($class === null) unset($this->properties[$className][$property]);
+                            else $this->properties[$className][$property] = $class;
                         }
                     }
                 }

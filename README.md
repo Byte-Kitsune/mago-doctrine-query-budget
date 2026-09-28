@@ -12,7 +12,7 @@ The [runnable report example](examples/README.md) shows why two harmless-looking
 Requires PHP 8.2+ and Mago 1.50. Pin the beta in your project:
 
 ```sh
-composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.10
+composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.11
 ```
 
 Add an extension host to `mago.toml`:
@@ -40,28 +40,32 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 )))->run();
 ```
 
-Run `vendor/bin/mago analyze`. A selector must be a PHP filename suffix. Both the filename and class name must end with its stem. Controller methods are public actions; for `Command.php`, only public `execute()` and `__invoke()` are entrypoints. Set thresholds to positive integers with `errorThreshold >= warningThreshold`.
+Run `vendor/bin/mago analyze`. A selector must be a PHP filename suffix. Both the filename and class name must end with its stem. Controller methods are public actions; for `Command.php`, protected or public `execute()` and public `__invoke()` are entrypoints, matching ordinary Symfony commands. Set thresholds to positive integers with `errorThreshold >= warningThreshold`.
 
-If your project uses [mago-symfony-wiring](https://github.com/Byte-Kitsune/mago-symfony-wiring), pass proven dev type bindings so the call graph can follow injected interfaces:
+If your project uses [mago-symfony-wiring](https://github.com/Byte-Kitsune/mago-symfony-wiring), pass the compiled dev container bindings explicitly. Generate its sanitized reference as described in that extension's README, then use one loader for both maps:
 
 ```php
-use ByteKitsune\MagoSymfonyWiring\ServiceConfigLoader;
+use ByteKitsune\MagoSymfonyWiring\ContainerReferenceLoader;
+use ByteKitsune\MagoSymfonyWiring\SymfonyWiringExtension;
 
 $root = dirname(__DIR__);
-$map = (new ServiceConfigLoader($root, [
-    'config/services.yaml',
-    'config/services.dev.yaml',
-]))->load();
+$reference = '.mago/container-reference.dev.json';
+$loader = new ContainerReferenceLoader($root, $reference);
+$map = $loader->load();
 
 $queryBudget = QueryBudgetExtension::create(
     classBindings: $map->classBindings(),
+    constructorBindings: $loader->constructorClassBindings(),
     warningThreshold: 10,
     errorThreshold: 25,
 );
-(new Worker($queryBudget))->run();
+(new Worker(
+    SymfonyWiringExtension::fromContainerReference($root, $reference),
+    $queryBudget,
+))->run();
 ```
 
-Use one `Worker` for all your installed extensions if they share a host. Pass `classBindings()` to this extension explicitly: installing the Symfony extension beside it does not transfer bindings automatically. If a budget stops at an injected interface, inspect the service map's `incomplete` reasons and the exact binding key. Symfony bindings resolve injected service types; they do not resolve free PHP function calls.
+The positional constructor map takes precedence over a general interface alias, including when a service has an explicit per-argument override. A `null` position stays unknown instead of borrowing the default alias. Installing both extensions alone does not transfer bindings; pass both maps to the query-budget extension. The source-only `ServiceConfigLoader` remains available for explicit literal service files, but cannot establish the full compiled Symfony container.
 
 ## Inspect one controller or command
 
@@ -87,7 +91,7 @@ MAGO_QUERY_BUDGET_INSPECT='App\Controller\ReportController::index' vendor/bin/ma
 
 The model counts selected Doctrine DBAL `Connection`, `Statement`, and DBAL query-builder execution methods as one statement each. Constructing a query is not execution. ORM `Query` executions and standard repository methods are recognized, but cache, hydration and lazy-loading effects leave their upper bound unknown. Calls to project-defined top-level functions and unadapted trait methods are followed through the same source snapshot. `self::` and `parent::` resolve against source-visible classes. Trait adaptations and late-bound `static::` remain incomplete. Conditional early returns keep a finite upper bound when all reachable calls are modeled. `try/catch/finally` bodies are followed with a conservative upper bound: a catch may run after part of the try body, and finally runs afterward. A source-visible non-Doctrine search method inside a try block can therefore be proven query-free.
 
-Explicit global calls to `\mb_trim`, `\max`, and `\min` are treated as query-free only for literal scalar arguments or variables that Mago proves scalar. Unqualified namespaced calls may resolve to application functions outside the analyzed snapshot, so they remain incomplete unless the function is source-visible. Set `assumeGlobalScalarBuiltins: true` only when your operator policy has verified that these three unqualified names are not overridden outside the source snapshot. The extension still follows source-visible overrides and imported function aliases before applying that assumption, and still requires scalar arguments. Callback functions such as `array_map` and `array_filter`, external collection methods, and response serialization are not assumed query-free. Their callbacks or lazy work can reach Doctrine; unresolved calls keep their names in the evidence. Unknown receivers, dynamic calls, other unsupported control flow and unbounded loops also remain incomplete. Static estimates are not measured SQL counts.
+Explicit global calls to `\mb_trim`, `\max`, and `\min` are treated as query-free only for literal scalar arguments or variables that Mago proves scalar. Explicit global calls to `\array_merge`, `\array_keys`, `\array_values`, `\array_reverse`, and `\array_slice` are query-free after their arguments are analyzed; these helpers do not invoke callbacks or object methods. Unqualified namespaced calls may resolve to application functions outside the analyzed snapshot, so they remain incomplete unless the function is source-visible. Set `assumeGlobalScalarBuiltins: true` only when your operator policy has verified that these three unqualified names are not overridden outside the source snapshot. The extension still follows source-visible overrides and imported function aliases before applying that assumption, and still requires scalar arguments. Callback functions such as `array_map` and `array_filter`, external collection methods, and response serialization are not assumed query-free. Their callbacks or lazy work can reach Doctrine; unresolved calls keep their names in the evidence. Unknown receivers, dynamic calls, other unsupported control flow and unbounded loops also remain incomplete. Static estimates are not measured SQL counts.
 
 Findings include:
 

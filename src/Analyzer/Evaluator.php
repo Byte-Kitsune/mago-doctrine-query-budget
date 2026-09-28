@@ -216,7 +216,7 @@ final class Evaluator
                 }
                 if ($this->program->functionModel($candidate) !== null) return $sum->plus($this->functionCall($candidate, $stack));
             }
-            if ($this->isScalarBuiltin($expr, $class, $file)) return $sum;
+            if ($this->isScalarBuiltin($expr, $class, $file) || $this->isPureArrayBuiltin($expr, $class)) return $sum;
             $name = implode(' or ', $candidates);
             return $sum->plus(Estimate::unknown('unresolved function call ' . $name . ' at ' . $file . ':' . $expr->getStartLine()));
         }
@@ -261,6 +261,20 @@ final class Evaluator
                 if (!$atomic instanceof ScalarType || !in_array($atomic->kind, [ScalarTypeKind::Boolean, ScalarTypeKind::Integer, ScalarTypeKind::Float, ScalarTypeKind::String], true)) return false;
             }
         }
+        return true;
+    }
+
+    private function isPureArrayBuiltin(Node\Expr\FuncCall $call, string $class): bool
+    {
+        if (!$call->name instanceof Node\Name || !in_array(strtolower($call->name->toString()), ['array_merge', 'array_keys', 'array_values', 'array_reverse', 'array_slice'], true)) return false;
+        if (!$call->name instanceof Node\Name\FullyQualified) {
+            if (!$call->name->isUnqualified() || str_contains($class, '\\')) return false;
+            $resolved = $call->name->getAttribute('namespacedName');
+            if (!$resolved instanceof Node\Name || strcasecmp(Program::name($resolved), $call->name->toString()) !== 0) return false;
+        }
+        // These array-only helpers do not invoke callbacks or object methods.
+        // Arguments and source-visible overrides are evaluated first.
+        foreach ($call->args as $argument) if (!$argument instanceof Node\Arg || $argument->unpack) return false;
         return true;
     }
 
