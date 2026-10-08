@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-beta.14
+
+- Add a bounded, static `inspectThresholds` API for PHP extension configuration. Resolve named/positional threshold arguments and simple literal assignments/constants without evaluating configuration; preserve the extension defaults and report dynamic, conditional or deferred configurations explicitly unresolved.
+- Treat PHP constant names as case sensitive, keep incomplete-issue limits separate from query color boundaries, and verify configuration inspection never executes source code.
+
 ## 0.1.0-beta.13
 
 - Add `QueryBudgetExtension::inspectFiles` for bounded project indexing. A batch constructs the full project model once and returns the existing per-file schema, preserving constructor bindings, transitive calls and each method's evaluation limits.

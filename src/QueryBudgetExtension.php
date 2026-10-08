@@ -9,7 +9,7 @@ use Mago\Sdk\Extension;
 
 final class QueryBudgetExtension
 {
-    public const VERSION = '0.1.0-beta.13';
+    public const VERSION = '0.1.0-beta.14';
     /**
      * Inspect every modeled method in one exact source file, regardless of its
      * name, visibility or configured warning thresholds. The snapshot must retain
@@ -27,6 +27,14 @@ final class QueryBudgetExtension
         ?string $method = null,
     ): array {
         return \ByteKitsune\MagoDoctrineQueryBudget\Analyzer\Inspection::file($analysis, $file, $classBindings, $constructorBindings, $method);
+    }
+
+    /** Read literal query thresholds from PHP configuration without executing it.
+     * @return array{schemaVersion: string, status: string, warning?: int, error?: int, message?: string}
+     */
+    public static function inspectThresholds(string $source): array
+    {
+        return \ByteKitsune\MagoDoctrineQueryBudget\Analyzer\ThresholdInspection::source($source);
     }
 
     /** Inspect multiple exact source files with one shared project model.

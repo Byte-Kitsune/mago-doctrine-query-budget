@@ -12,7 +12,7 @@ The [runnable report example](examples/README.md) shows why two harmless-looking
 Requires PHP 8.2+ and Mago 1.50. Pin the beta in your project:
 
 ```sh
-composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.13
+composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.14
 ```
 
 Add an extension host to `mago.toml`:
@@ -127,3 +127,5 @@ From an SDK after-analysis hook, call `QueryBudgetExtension::inspectFile($contex
 Keep the whole-project snapshot so transitive service and repository calls remain available. Supply compiled Symfony `classBindings` and positional `constructorBindings` when available. To inspect one exact method, pass `method: 'App\Service::run'`; missing files or methods return `unsupported`, and an abstract implementation remains unknown rather than zero. This API is read-only, works independently of diagnostic thresholds and does not execute application code.
 
 For project indexing, `QueryBudgetExtension::inspectFiles($context->analysis, ['src/Service.php', 'src/Other.php'])` returns the same per-file reports keyed by source path. It constructs the full project model once for the batch, preserving transitive calls and compiled constructor bindings. A batch accepts at most 2,000 distinct source paths.
+
+`QueryBudgetExtension::inspectThresholds($phpSource)` statically reads top-level `create` configuration, including imported class aliases, named or positional threshold arguments, and simple preceding literal assignments/constants. It never executes PHP configuration. Missing arguments inherit the extension API defaults (warning 10, error 25); `incompleteIssueLimit` is not a query threshold. Dynamic expressions, deferred/conditional calls and conflicting configurations return an explicit `unresolved` status without guessed values.
