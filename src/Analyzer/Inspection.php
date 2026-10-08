@@ -49,7 +49,28 @@ final class Inspection
      */
     public static function files(ProjectAnalysis $analysis, array $files, array $classBindings = [], array $constructorBindings = []): array
     {
-        if (count($files) > 2000) throw new \InvalidArgumentException('At most 2000 source files may be inspected.');
+        return self::selectedFiles($analysis, $files, $classBindings, $constructorBindings, 2000);
+    }
+
+    /** Inspect project-sized selections without rebuilding the complete model per batch.
+     * @param list<string> $files
+     * @param array<string, string> $classBindings
+     * @param array<string, array<int, ?string>> $constructorBindings
+     * @return array<string, array<string, mixed>>
+     */
+    public static function snapshot(ProjectAnalysis $analysis, array $files, array $classBindings = [], array $constructorBindings = []): array
+    {
+        return self::selectedFiles($analysis, $files, $classBindings, $constructorBindings, 50_000, true);
+    }
+
+    /** @param list<string> $files
+     * @param array<string, string> $classBindings
+     * @param array<string, array<int, ?string>> $constructorBindings
+     * @return array<string, array<string, mixed>>
+     */
+    private static function selectedFiles(ProjectAnalysis $analysis, array $files, array $classBindings, array $constructorBindings, int $limit, bool $isolateFileFailures = false): array
+    {
+        if (count($files) > $limit) throw new \InvalidArgumentException('At most ' . $limit . ' source files may be inspected.');
         $selectors = [];
         foreach ($files as $file) {
             if (!is_string($file) || $file === '' || strlen($file) > 4096 || str_contains($file, "\0"))
@@ -64,25 +85,36 @@ final class Inspection
         $program = new Program($analysis, $classBindings, $constructorBindings);
         $models = [];
         foreach ($program->methods as $model) $models[str_replace('\\', '/', $model['file'])][] = $model;
+        $failures = [];
+        foreach ($program->parseFailures as $path => $reason) $failures[str_replace('\\', '/', $path)] = $reason;
         $reports = [];
         foreach ($selectors as $normalized => $file) {
-            $reports[$file] = isset($seen[$normalized])
-                ? self::report($program, $file, null, $models[$normalized] ?? [])
-                : self::unavailable('unsupported', 'The file is absent from the configured Mago source snapshot.');
+            try {
+                $reports[$file] = isset($seen[$normalized])
+                    ? self::report($program, $file, null, $models[$normalized] ?? [], $failures)
+                    : self::unavailable('unsupported', 'The file is absent from the configured Mago source snapshot.');
+            } catch (\Throwable $error) {
+                if (!$isolateFileFailures) throw $error;
+                $reports[$file] = self::unavailable('failed', $error instanceof \RuntimeException && $error->getMessage() === 'File exceeds the 512 method inspection limit.'
+                    ? $error->getMessage() : 'The source file could not be inspected: ' . $error::class);
+            }
         }
         return $reports;
     }
 
     /** @param array<string, mixed>|null $models
+     * @param array<string, string>|null $failures Normalized paths to parse failure reasons.
      * @return array<string, mixed>
      */
-    private static function report(Program $program, string $file, ?string $method, ?array $models = null): array
+    private static function report(Program $program, string $file, ?string $method, ?array $models = null, ?array $failures = null): array
     {
         $target = str_replace('\\', '/', $file);
         $matches = static fn(string $path): bool => str_replace('\\', '/', $path) === $target;
-        foreach ($program->parseFailures as $path => $reason) {
-            if ($matches($path)) return self::unavailable('failed', 'The PHP file could not be parsed: ' . $reason);
+        if ($failures === null) {
+            $failures = [];
+            foreach ($program->parseFailures as $path => $reason) $failures[str_replace('\\', '/', $path)] = $reason;
         }
+        if (isset($failures[$target])) return self::unavailable('failed', 'The PHP file could not be parsed: ' . $failures[$target]);
         $methods = [];
         $incomplete = false;
         foreach ($models ?? $program->methods as $model) {

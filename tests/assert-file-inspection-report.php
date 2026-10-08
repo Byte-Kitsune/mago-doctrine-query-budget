@@ -29,6 +29,14 @@ if ($reports['src/Service.php']['status'] !== 'complete' || $reports['src/Inspec
 }
 foreach (['src/Service.php', 'src/InspectionService.php', 'src/CycleController.php', 'src/Missing.php'] as $file) {
     if ($reports['batch'][$file] !== $reports[$file]) throw new RuntimeException('Batch inspection differs from single-file result: ' . $file);
+    if ($reports['snapshot'][$file] !== $reports[$file]) throw new RuntimeException('Snapshot inspection differs from single-file result: ' . $file);
 }
 if ($reports['emptyBatch'] !== [] || $reports['overriddenBatch']['src/OverrideController.php']['methods'][0]['upperBound'] !== 0) throw new RuntimeException('Batch bindings or empty request changed semantics.');
+if ($reports['emptySnapshot'] !== [] || $reports['overriddenSnapshot'] !== $reports['overriddenBatch']
+    || $reports['boundSnapshot']['src/ReportController.php'] !== $reports['boundSingle']
+    || $methods($reports['boundSingle'])['App\\ReportController::index']['upperBound'] !== 4) throw new RuntimeException('Snapshot bindings or empty request changed semantics.');
+$normalized = $reports['normalizedSnapshot']['src\\Service.php'];
+foreach ($normalized['methods'] as &$method) $method['path'] = 'src/Service.php';
+unset($method);
+if ($normalized !== $reports['src/Service.php']) throw new RuntimeException('Normalized snapshot path changed semantics.');
 echo "Public file and method inspection passed\n";

@@ -14,3 +14,5 @@ jobs:
       - run: sh tests/smoke.sh
       - run: sh tests/summary-smoke.sh
       - run: sh tests/scale-smoke.sh
+      - run: sh tests/inspection-scale-smoke.sh
+      - run: sh tests/snapshot-failure-smoke.sh

@@ -12,7 +12,7 @@ The [runnable report example](examples/README.md) shows why two harmless-looking
 Requires PHP 8.2+ and Mago 1.50. Pin the beta in your project:
 
 ```sh
-composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.14
+composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.15
 ```
 
 Add an extension host to `mago.toml`:
@@ -116,9 +116,11 @@ After a PHP source run, the Analyzer emits one `analysis-attestation` note with 
 composer install
 sh tests/smoke.sh
 sh tests/scale-smoke.sh
+sh tests/inspection-scale-smoke.sh
+sh tests/snapshot-failure-smoke.sh
 ```
 
-The [fictional fixture](tests/corpus) covers bounded DBAL calls, ORM uncertainty and recursion. The scale check generates more than 20,000 PHP files and confirms an explicit failure above the 25,000-file limit. Licensed under [MIT](LICENSE).
+The [fictional fixture](tests/corpus) covers bounded DBAL calls, ORM uncertainty and recursion. The scale check generates more than 20,000 PHP files and confirms an explicit failure above the 25,000-file limit. The inspection scale check compares every report from ten 2,000-file batches against one 20,000-file snapshot request and prints timings without imposing a machine-specific speed threshold. Override `MAGO_INSPECTION_BENCHMARK_FILES` to test another size between 2,001 and 25,000 files. It permits up to 2 GiB for the PHP worker; production memory requirements depend on source and method sizes. Licensed under [MIT](LICENSE).
 
 ## Inspect any PHP file or method
 
@@ -127,5 +129,7 @@ From an SDK after-analysis hook, call `QueryBudgetExtension::inspectFile($contex
 Keep the whole-project snapshot so transitive service and repository calls remain available. Supply compiled Symfony `classBindings` and positional `constructorBindings` when available. To inspect one exact method, pass `method: 'App\Service::run'`; missing files or methods return `unsupported`, and an abstract implementation remains unknown rather than zero. This API is read-only, works independently of diagnostic thresholds and does not execute application code.
 
 For project indexing, `QueryBudgetExtension::inspectFiles($context->analysis, ['src/Service.php', 'src/Other.php'])` returns the same per-file reports keyed by source path. It constructs the full project model once for the batch, preserving transitive calls and compiled constructor bindings. A batch accepts at most 2,000 distinct source paths.
+
+For larger indexes, `QueryBudgetExtension::inspectSnapshot($context->analysis, $files)` accepts up to 50,000 distinct source paths and constructs the full project model only once for the entire selection. It accepts the same `classBindings` and `constructorBindings` arguments and returns identical per-file reports, including unsupported reports for absent paths. Keep the complete Mago snapshot even when selecting only some files: transitive callees may live outside the selection. The existing 25,000 PHP source / 512 MiB model limits and per-method evaluation limits still apply. Unlike chunking calls to `inspectFiles()`, this avoids repeatedly parsing and indexing the whole project. File-local evaluation failures (including the 512-method limit) return a `failed` report with no partial method list, while other selected files continue. Invalid selectors and model-wide source limits still reject the entire request. The model lives only for this call and is never reused across snapshot generations.
 
 `QueryBudgetExtension::inspectThresholds($phpSource)` statically reads top-level `create` configuration, including imported class aliases, named or positional threshold arguments, and simple preceding literal assignments/constants. It never executes PHP configuration. Missing arguments inherit the extension API defaults (warning 10, error 25); `incompleteIssueLimit` is not a query threshold. Dynamic expressions, deferred/conditional calls and conflicting configurations return an explicit `unresolved` status without guessed values.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-beta.15
+
+- Add `QueryBudgetExtension::inspectSnapshot` for up to 50,000 exact source selectors, constructing the complete project model once instead of once per 2,000-file batch. Keep existing batch, source-size and evaluation limits unchanged.
+- Isolate file-local inspection failures in the new snapshot API and index parse failures by normalized path. Preserve class/constructor bindings, transitive context, method-local limits and legacy API behavior.
+- Verify 17,000- and 20,000-file report equivalence; provide a repeatable native benchmark and CI coverage for snapshot bounds and failed-file isolation.
+
 ## 0.1.0-beta.14
 
 - Add a bounded, static `inspectThresholds` API for PHP extension configuration. Resolve named/positional threshold arguments and simple literal assignments/constants without evaluating configuration; preserve the extension defaults and report dynamic, conditional or deferred configurations explicitly unresolved.
