@@ -9,7 +9,7 @@ use Mago\Sdk\Extension;
 
 final class QueryBudgetExtension
 {
-    public const VERSION = '0.1.0-beta.12';
+    public const VERSION = '0.1.0-beta.13';
     /**
      * Inspect every modeled method in one exact source file, regardless of its
      * name, visibility or configured warning thresholds. The snapshot must retain
@@ -27,6 +27,21 @@ final class QueryBudgetExtension
         ?string $method = null,
     ): array {
         return \ByteKitsune\MagoDoctrineQueryBudget\Analyzer\Inspection::file($analysis, $file, $classBindings, $constructorBindings, $method);
+    }
+
+    /** Inspect multiple exact source files with one shared project model.
+     * @param list<string> $files
+     * @param array<string, string> $classBindings
+     * @param array<string, array<int, ?string>> $constructorBindings
+     * @return array<string, array<string, mixed>> Reports indexed by requested source path.
+     */
+    public static function inspectFiles(
+        \Mago\Sdk\Analyzer\ProjectAnalysis $analysis,
+        array $files,
+        array $classBindings = [],
+        array $constructorBindings = [],
+    ): array {
+        return \ByteKitsune\MagoDoctrineQueryBudget\Analyzer\Inspection::files($analysis, $files, $classBindings, $constructorBindings);
     }
 
     /**

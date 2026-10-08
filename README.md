@@ -12,7 +12,7 @@ The [runnable report example](examples/README.md) shows why two harmless-looking
 Requires PHP 8.2+ and Mago 1.50. Pin the beta in your project:
 
 ```sh
-composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.12
+composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:0.1.0-beta.13
 ```
 
 Add an extension host to `mago.toml`:
@@ -125,3 +125,5 @@ The [fictional fixture](tests/corpus) covers bounded DBAL calls, ORM uncertainty
 From an SDK after-analysis hook, call `QueryBudgetExtension::inspectFile($context->analysis, 'src/Service.php')`. The source path must exactly match a file in the Mago snapshot. Unlike controller/command diagnostics, this API returns all modeled methods, including private methods and constructors, with zero and below-threshold estimates. Each method contains `symbol`, `path`, `line`, `lowerBound`, nullable `upperBound`, `unknown` and `cycles`. The result has `schemaVersion: "1"` and a `complete`, `incomplete`, `unsupported` or `failed` status. Estimates describe one invocation of each method; adding every method's bounds does not describe one execution of the file.
 
 Keep the whole-project snapshot so transitive service and repository calls remain available. Supply compiled Symfony `classBindings` and positional `constructorBindings` when available. To inspect one exact method, pass `method: 'App\Service::run'`; missing files or methods return `unsupported`, and an abstract implementation remains unknown rather than zero. This API is read-only, works independently of diagnostic thresholds and does not execute application code.
+
+For project indexing, `QueryBudgetExtension::inspectFiles($context->analysis, ['src/Service.php', 'src/Other.php'])` returns the same per-file reports keyed by source path. It constructs the full project model once for the batch, preserving transitive calls and compiled constructor bindings. A batch accepts at most 2,000 distinct source paths.

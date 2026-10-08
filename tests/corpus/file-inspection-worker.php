@@ -29,6 +29,14 @@ final class FileInspectionHook implements AfterAnalysisHook
         foreach (['src/Service.php', 'src/InspectionService.php', 'src/CycleController.php', 'src/Missing.php'] as $file) {
             $reports[$file] = QueryBudgetExtension::inspectFile($context->analysis, $file);
         }
+        $reports['batch'] = QueryBudgetExtension::inspectFiles($context->analysis, ['src/Service.php', 'src/InspectionService.php', 'src/CycleController.php', 'src/Missing.php']);
+        $reports['emptyBatch'] = QueryBudgetExtension::inspectFiles($context->analysis, []);
+        $reports['overriddenBatch'] = QueryBudgetExtension::inspectFiles($context->analysis, ['src/OverrideController.php'], constructorBindings: ['App\\OverrideController' => [0 => 'App\\PureService']]);
+        foreach ([[''], ['src/Service.php', 'src\\Service.php'], array_fill(0, 2001, 'src/Service.php')] as $invalid) {
+            try { QueryBudgetExtension::inspectFiles($context->analysis, $invalid); }
+            catch (InvalidArgumentException) { continue; }
+            throw new RuntimeException('Invalid batch inspection selector was accepted.');
+        }
         $reports['overridden'] = QueryBudgetExtension::inspectFile($context->analysis, 'src/OverrideController.php', constructorBindings: ['App\OverrideController' => [0 => 'App\PureService']], method: 'App\OverrideController::index');
         $reports['selected'] = QueryBudgetExtension::inspectFile($context->analysis, 'src/InspectionService.php', method: 'App\InspectionService::internal');
         $reports['missingMethod'] = QueryBudgetExtension::inspectFile($context->analysis, 'src/InspectionService.php', method: 'App\InspectionService::missing');

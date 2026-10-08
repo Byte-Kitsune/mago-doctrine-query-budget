@@ -27,4 +27,8 @@ if ($reports['src/Service.php']['status'] !== 'complete' || $reports['src/Inspec
     || $cycles['App\CycleController::recurse']['upperBound'] !== null || $cycles['App\CycleController::recurse']['cycles'] === []) {
     throw new RuntimeException('File/method inspection completeness is incorrect.');
 }
+foreach (['src/Service.php', 'src/InspectionService.php', 'src/CycleController.php', 'src/Missing.php'] as $file) {
+    if ($reports['batch'][$file] !== $reports[$file]) throw new RuntimeException('Batch inspection differs from single-file result: ' . $file);
+}
+if ($reports['emptyBatch'] !== [] || $reports['overriddenBatch']['src/OverrideController.php']['methods'][0]['upperBound'] !== 0) throw new RuntimeException('Batch bindings or empty request changed semantics.');
 echo "Public file and method inspection passed\n";

@@ -38,12 +38,54 @@ final class Inspection
         }
         if (!$seen) return self::unavailable('unsupported', 'The file is absent from the configured Mago source snapshot.');
         $program = new Program($analysis, $classBindings, $constructorBindings);
+        return self::report($program, $file, $method);
+    }
+
+    /** Inspect a complete batch while constructing the project model exactly once.
+     * @param list<string> $files
+     * @param array<string, string> $classBindings
+     * @param array<string, array<int, ?string>> $constructorBindings
+     * @return array<string, array<string, mixed>>
+     */
+    public static function files(ProjectAnalysis $analysis, array $files, array $classBindings = [], array $constructorBindings = []): array
+    {
+        if (count($files) > 2000) throw new \InvalidArgumentException('At most 2000 source files may be inspected.');
+        $selectors = [];
+        foreach ($files as $file) {
+            if (!is_string($file) || $file === '' || strlen($file) > 4096 || str_contains($file, "\0"))
+                throw new \InvalidArgumentException('Inspection requires exact Mago source paths.');
+            $normalized = str_replace('\\', '/', $file);
+            if (isset($selectors[$normalized])) throw new \InvalidArgumentException('Duplicate inspection source path.');
+            $selectors[$normalized] = $file;
+        }
+        if ($files === []) return [];
+        $seen = [];
+        foreach ($analysis->files as $source) $seen[str_replace('\\', '/', $source->file)] = true;
+        $program = new Program($analysis, $classBindings, $constructorBindings);
+        $models = [];
+        foreach ($program->methods as $model) $models[str_replace('\\', '/', $model['file'])][] = $model;
+        $reports = [];
+        foreach ($selectors as $normalized => $file) {
+            $reports[$file] = isset($seen[$normalized])
+                ? self::report($program, $file, null, $models[$normalized] ?? [])
+                : self::unavailable('unsupported', 'The file is absent from the configured Mago source snapshot.');
+        }
+        return $reports;
+    }
+
+    /** @param array<string, mixed>|null $models
+     * @return array<string, mixed>
+     */
+    private static function report(Program $program, string $file, ?string $method, ?array $models = null): array
+    {
+        $target = str_replace('\\', '/', $file);
+        $matches = static fn(string $path): bool => str_replace('\\', '/', $path) === $target;
         foreach ($program->parseFailures as $path => $reason) {
             if ($matches($path)) return self::unavailable('failed', 'The PHP file could not be parsed: ' . $reason);
         }
         $methods = [];
         $incomplete = false;
-        foreach ($program->methods as $model) {
+        foreach ($models ?? $program->methods as $model) {
             if (!$matches($model['file'])) continue;
             $name = $model['node']->name->toString();
             $symbol = $model['class'] . '::' . $name;
