@@ -9,7 +9,26 @@ use Mago\Sdk\Extension;
 
 final class QueryBudgetExtension
 {
-    public const VERSION = '0.1.0-beta.11';
+    public const VERSION = '0.1.0-beta.12';
+    /**
+     * Inspect every modeled method in one exact source file, regardless of its
+     * name, visibility or configured warning thresholds. The snapshot must retain
+     * full project context; passing only the opened file loses transitive calls.
+     *
+     * @param array<string, string> $classBindings
+     * @param array<string, array<int, ?string>> $constructorBindings
+     * @return array{schemaVersion: string, status: string, message?: string, methods: list<array<string, mixed>>}
+     */
+    public static function inspectFile(
+        \Mago\Sdk\Analyzer\ProjectAnalysis $analysis,
+        string $file,
+        array $classBindings = [],
+        array $constructorBindings = [],
+        ?string $method = null,
+    ): array {
+        return \ByteKitsune\MagoDoctrineQueryBudget\Analyzer\Inspection::file($analysis, $file, $classBindings, $constructorBindings, $method);
+    }
+
     /**
      * @param array<string, string> $classBindings Proven service type/named-target to implementation class.
      * @param array<string, array<int, ?string>> $constructorBindings Compiled service references by owner class and constructor position.
