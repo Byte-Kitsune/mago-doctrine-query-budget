@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace ByteKitsune\MagoDoctrineQueryBudget\Analyzer;
 
+if (!class_exists(\ByteKitsune\MagoNative\Engine::class, false)) require_once dirname(__DIR__) . '/NativeEngine.php';
+if (!class_exists(\ByteKitsune\MagoNative\Parser::class, false)) require_once dirname(__DIR__) . '/NativeParser.php';
+
+
 use Mago\Sdk\Analyzer\ProjectAnalysis;
 use PhpParser\Node;
 use PhpParser\NodeFinder;
@@ -37,6 +41,9 @@ final class Program
     public array $parents = [];
     /** @var array<string, string> */
     public array $parseFailures = [];
+    public bool $native = false;
+    public string $nativeSession = 'legacy';
+    private static ?\WeakMap $nativeCache = null;
 
     /** @param array<string, string> $bindings
      *  @param array<string, array<int, ?string>> $constructorBindings
@@ -47,7 +54,7 @@ final class Program
         private readonly array $constructorBindings = [],
     )
     {
-        $parser = (new ParserFactory())->createForNewestSupportedVersion();
+        $parser = \ByteKitsune\MagoNative\Parser::create();
         $finder = new NodeFinder();
         $phpFiles = 0;
         $phpBytes = 0;
@@ -57,6 +64,46 @@ final class Program
             $phpBytes += $file->size;
             if ($phpFiles > self::MAX_PHP_FILES) throw new \RuntimeException('PHP source count exceeds query-budget limit of 25000.');
             if ($phpBytes > self::MAX_PHP_BYTES) throw new \RuntimeException('PHP source bytes exceed query-budget limit of 512 MiB.');
+        }
+        if (\ByteKitsune\MagoNative\Engine::enabled()) {
+            self::$nativeCache ??= new \WeakMap();
+            $signature = hash('sha256', json_encode([$this->bindings, $this->constructorBindings], JSON_THROW_ON_ERROR));
+            $cached = self::$nativeCache[$analysis][$signature] ?? null;
+            $this->native = true;
+            if ($cached !== null) {
+                $this->nativeSession = $cached['session'];
+                $this->methods = $cached['methods'];
+                return;
+            }
+            $this->nativeSession = \ByteKitsune\MagoNative\Engine::beginNativeBudget($this->bindings, $this->constructorBindings);
+            foreach ($analysis->files as $file) {
+                if (!str_ends_with($file->file, '.php')) continue;
+                if ($file->size > 1_048_576) { $this->parseFailures[$file->file] = 'source file exceeds one MiB'; continue; }
+                try {
+                    $source = $file->getSourceFile();
+                    try {
+                        $metadata = \ByteKitsune\MagoNative\Engine::indexBudgetSource($this->nativeSession, $file->file, $source->contents);
+                    } catch (\PhpParser\Error $error) {
+                        if (getenv('MAGO_NATIVE_STRICT') === '1' || !str_starts_with($error->getMessage(), 'Unsupported native syntax:')) throw $error;
+                        $nodes = (new ParserFactory())->createForNewestSupportedVersion()->parse($source->contents) ?? [];
+                        $nodes = (new NodeTraverser(new NameResolver()))->traverse($nodes);
+                        ++\ByteKitsune\MagoNative\Parser::$fallbackParses;
+                        $metadata = \ByteKitsune\MagoNative\Engine::indexBudgetNodes($this->nativeSession, $file->file, $nodes);
+                    }
+                } catch (\Throwable $error) { $this->parseFailures[$file->file] = $error::class; continue; }
+                foreach ($metadata as $method) {
+                    $identifier = new Node\Identifier($method['name'], $method['name_attributes']);
+                    $attributes = array_intersect_key($method['method_attributes'], array_flip(['startFilePos', 'endFilePos', 'startLine', 'endLine']));
+                    $node = new Node\Stmt\ClassMethod($identifier, ['flags' => $method['flags'], 'stmts' => $method['abstract'] ? null : []], $attributes);
+                    $this->methods[$method['key']] = ['node' => $node, 'class' => $method['class'], 'file' => $method['file']];
+                }
+            }
+            if ($this->parseFailures === []) {
+                $variants = self::$nativeCache[$analysis] ?? [];
+                $variants[$signature] = ['session' => $this->nativeSession, 'methods' => $this->methods];
+                self::$nativeCache[$analysis] = $variants;
+            }
+            return;
         }
         foreach ($analysis->files as $file) {
             if (!str_ends_with($file->file, '.php')) continue;

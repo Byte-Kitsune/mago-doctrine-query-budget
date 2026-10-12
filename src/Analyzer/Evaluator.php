@@ -21,6 +21,8 @@ final class Evaluator
     /** @param list<string> $stack */
     public function method(string $class, string $name, array $stack = []): Estimate
     {
+        if (!class_exists(\ByteKitsune\MagoNative\Engine::class, false)) require_once dirname(__DIR__) . '/NativeEngine.php';
+        if ($stack === [] && \ByteKitsune\MagoNative\Engine::enabled()) return NativeBudget::estimate($this->program, $class, $name, $this->assumeGlobalScalarBuiltins);
         if (++$this->visits > 25_000) return Estimate::unknown('analysis work limit');
         $key = Program::key($class, $name);
         $model = $this->program->method($class, $name);
@@ -43,6 +45,8 @@ final class Evaluator
     /** @param list<string> $stack */
     public function functionCall(string $name, array $stack = []): Estimate
     {
+        if (!class_exists(\ByteKitsune\MagoNative\Engine::class, false)) require_once dirname(__DIR__) . '/NativeEngine.php';
+        if ($stack === [] && \ByteKitsune\MagoNative\Engine::enabled()) return NativeBudget::estimate($this->program, '', '', $this->assumeGlobalScalarBuiltins, $name);
         if (++$this->visits > 25_000) return Estimate::unknown('analysis work limit');
         $model = $this->program->functionModel($name);
         if ($model === null) return Estimate::unknown('unresolved function ' . $name);
