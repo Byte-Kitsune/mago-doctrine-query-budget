@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0 — 2026-10-12
+
+- Publish the existing analyzer and inspection APIs as the first stable release.
+- Set extension and analysis-attestation version metadata to `1.0.0`.
+- Update installation instructions to use the stable package version.
+- Preserve conservative analysis, explicit incomplete evidence, and existing bounds.
+
 ## 0.1.0-beta.15
 
 - Add `QueryBudgetExtension::inspectSnapshot` for up to 50,000 exact source selectors, constructing the complete project model once instead of once per 2,000-file batch. Keep existing batch, source-size and evaluation limits unchanged.

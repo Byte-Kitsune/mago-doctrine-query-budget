@@ -9,7 +9,7 @@ use Mago\Sdk\Extension;
 
 final class QueryBudgetExtension
 {
-    public const VERSION = '0.1.0-beta.15';
+    public const VERSION = '1.0.0';
     /**
      * Inspect every modeled method in one exact source file, regardless of its
      * name, visibility or configured warning thresholds. The snapshot must retain
