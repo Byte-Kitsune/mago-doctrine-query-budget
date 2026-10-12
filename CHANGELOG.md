@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 — 2026-10-12
+
+- Allow Mago >=1.50.0,<2.0.0 instead of restricting dependencies to the 1.50 minor series.
+- Use a major-version pin in executable Mago configurations and test the supported API floor plus latest compatible 1.x in CI.
+
 ## 1.0.0 — 2026-10-12
 
 - Give the complete 20,000-source inspection benchmark a 180-second worker deadline on shared CI runners; ordinary extension configuration is unchanged.
