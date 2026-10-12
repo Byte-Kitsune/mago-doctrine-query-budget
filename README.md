@@ -137,3 +137,15 @@ For project indexing, `QueryBudgetExtension::inspectFiles($context->analysis, ['
 For larger indexes, `QueryBudgetExtension::inspectSnapshot($context->analysis, $files)` accepts up to 50,000 distinct source paths and constructs the full project model only once for the entire selection. It accepts the same `classBindings` and `constructorBindings` arguments and returns identical per-file reports, including unsupported reports for absent paths. Keep the complete Mago snapshot even when selecting only some files: transitive callees may live outside the selection. The existing 25,000 PHP source / 512 MiB model limits and per-method evaluation limits still apply. Unlike chunking calls to `inspectFiles()`, this avoids repeatedly parsing and indexing the whole project. File-local evaluation failures (including the 512-method limit) return a `failed` report with no partial method list, while other selected files continue. Invalid selectors and model-wide source limits still reject the entire request. The model lives only for this call and is never reused across snapshot generations.
 
 `QueryBudgetExtension::inspectThresholds($phpSource)` statically reads top-level `create` configuration, including imported class aliases, named or positional threshold arguments, and simple preceding literal assignments/constants. It never executes PHP configuration. Missing arguments inherit the extension API defaults (warning 10, error 25); `incompleteIssueLimit` is not a query threshold. Dynamic expressions, deferred/conditional calls and conflicting configurations return an explicit `unresolved` status without guessed values.
+
+
+## Native computational backend
+
+An opt-in Rust backend is available on this development branch. It preserves
+the existing Mago PHP worker and configuration API. Build with
+`cargo build --release --locked --manifest-path native/Cargo.toml` and set
+`MAGO_NATIVE_ENGINE` to that executable before running Mago.
+
+See [native backend details](NATIVE_BACKEND.md) for migrated components,
+compatibility fallback and validation. This does not change the default backend
+of the previously published releases.
