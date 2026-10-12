@@ -9,10 +9,14 @@ The [runnable report example](examples/README.md) shows why two harmless-looking
 
 ## Install and run
 
-Requires PHP 8.2+ and Mago 1.50. Pin the stable release in your project:
+The Composer requirement `^1.50` permits later Mago 1.x releases and excludes 2.x.
+Mago 1.50 remains the tested API floor; older releases are not covered.
+CI checks this floor and the latest compatible 1.x release.
+
+Requires PHP 8.2+ and Mago >=1.50.0,<2.0.0. Pin the stable release in your project:
 
 ```sh
-composer require --dev carthage-software/mago:1.50.0 byte-kitsune/mago-doctrine-query-budget:1.0.0
+composer require --dev "carthage-software/mago:^1.50" byte-kitsune/mago-doctrine-query-budget:1.0.1
 ```
 
 Add an extension host to `mago.toml`:
