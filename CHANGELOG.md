@@ -2,6 +2,7 @@
 
 ## 1.0.0 — 2026-10-12
 
+- Give the complete 20,000-source inspection benchmark a 180-second worker deadline on shared CI runners; ordinary extension configuration is unchanged.
 - Publish the existing analyzer and inspection APIs as the first stable release.
 - Set extension and analysis-attestation version metadata to `1.0.0`.
 - Update installation instructions to use the stable package version.

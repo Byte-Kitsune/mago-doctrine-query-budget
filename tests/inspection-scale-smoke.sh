@@ -8,6 +8,9 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 sed 's/"php", /"php", "-d", "memory_limit=2G", /' "$root/tests/corpus/mago-file-inspection.toml" > "$work/mago.toml"
+# The complete 20k-source benchmark compares ten batches and one snapshot in
+# a single callback; shared CI runners need more than the ordinary 30s deadline.
+printf '\nrequest-timeout-ms = 180000\n' >> "$work/mago.toml"
 cp "$root/tests/corpus/snapshot-benchmark-worker.php" "$work/file-inspection-worker.php"
 mkdir "$work/src"
 php -r '

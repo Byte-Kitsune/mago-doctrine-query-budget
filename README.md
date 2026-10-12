@@ -120,7 +120,7 @@ sh tests/inspection-scale-smoke.sh
 sh tests/snapshot-failure-smoke.sh
 ```
 
-The [fictional fixture](tests/corpus) covers bounded DBAL calls, ORM uncertainty and recursion. The scale check generates more than 20,000 PHP files and confirms an explicit failure above the 25,000-file limit. The inspection scale check compares every report from ten 2,000-file batches against one 20,000-file snapshot request and prints timings without imposing a machine-specific speed threshold. Override `MAGO_INSPECTION_BENCHMARK_FILES` to test another size between 2,001 and 25,000 files. It permits up to 2 GiB for the PHP worker; production memory requirements depend on source and method sizes. Licensed under [MIT](LICENSE).
+The [fictional fixture](tests/corpus) covers bounded DBAL calls, ORM uncertainty and recursion. The scale check generates more than 20,000 PHP files and confirms an explicit failure above the 25,000-file limit. The inspection scale check compares every report from ten 2,000-file batches against one 20,000-file snapshot request and prints timings without imposing a machine-specific speed threshold. Override `MAGO_INSPECTION_BENCHMARK_FILES` to test another size between 2,001 and 25,000 files. The benchmark permits a 180-second extension callback and up to 2 GiB for the PHP worker; production memory requirements depend on source and method sizes. Licensed under [MIT](LICENSE).
 
 ## Inspect any PHP file or method
 
