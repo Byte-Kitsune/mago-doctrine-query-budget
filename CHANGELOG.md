@@ -6,6 +6,9 @@
 - Model common array callback consumers with literal cardinalities and scalar builtin proofs. Preserve PHP evaluation order, captured values and uncertainty after mutable/reference bindings.
 - Follow Symfony cache and Doctrine transaction callbacks conservatively; expand typed Doctrine ancestry, factory and modern DBAL execution recognition.
 - Keep unrelated query classes ordinary source calls. Opaque external calls remain incomplete, without suppressing subsequent Doctrine executions; ORM lifecycle effects remain uncertain.
+- Expand comparator, regex, recursive walk, iterator/generator, Closure/reflection and deferred registration contracts with 45 additional neutral consumer cases.
+- Discover framework/magic hook candidates and report per-invocation budgets, independently of file naming and activation. Reuse compact native declaration metadata; expose explicit configured targets.
+- Reject promoted property hooks explicitly instead of silently discarding their bodies.
 - Add 60 neutral regression entrypoints and exact PHP/Rust report parity. Select shared engine 0.4.0 in a separate cache. Candidate builds require an explicit engine override until release assets are published.
 
 ## 1.1.2 — 2026-10-13

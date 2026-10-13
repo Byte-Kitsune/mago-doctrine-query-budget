@@ -16,6 +16,8 @@ final class Evaluator
     private int $visits = 0;
     private int $uncertainCallback = 0;
     private int $boundDepth = 0;
+    private bool $consumeGenerator = false;
+    private array $consumed = [];
 
     public function __construct(private readonly Program $program, private readonly bool $assumeGlobalScalarBuiltins = false) {}
 
@@ -37,13 +39,14 @@ final class Evaluator
             return new Estimate(0, null, ['unbounded recursion: ' . $key], [$key]);
         }
         if (count($stack) >= 48) return Estimate::unknown('call depth limit');
-        if ($this->hasYield($model['node'])) return new Estimate();
-        $env = ['this' => $model['class']];
+        if ($this->hasYield($model['node'])) { if (!$this->consumeGenerator) return new Estimate(); $this->consumeGenerator = false; }
+        $env = ['this' => $class];
         foreach ($model['node']->params as $parameter) {
             if (!$parameter->var instanceof Node\Expr\Variable || !is_string($parameter->var->name) || !$parameter->type instanceof Node\Name) continue;
             $env[$parameter->var->name] = Program::name($parameter->type);
         }
         $this->bindParameters($model['node'], $arguments, $env, $model['class'] ?? '', $model['file']);
+        foreach ($arguments as $argument) if (($argument['argument_name'] ?? null) === "\0this") { if (isset($argument['object'])) $env['this'] = $argument['object']; $env["\0values"]['this'] = $argument; }
         return $this->statements($model['node']->stmts ?? [], $model['class'], $model['file'], $env, [...$stack, $key]);
     }
 
@@ -64,7 +67,7 @@ final class Evaluator
             return new Estimate(0, null, ['unbounded recursion: ' . $key], [$key]);
         }
         if (count($stack) >= 48) return Estimate::unknown('call depth limit');
-        if ($this->hasYield($model['node'])) return new Estimate();
+        if ($this->hasYield($model['node'])) { if (!$this->consumeGenerator) return new Estimate(); $this->consumeGenerator = false; }
         $env = [];
         foreach ($model['node']->params as $parameter) {
             if (!$parameter->var instanceof Node\Expr\Variable || !is_string($parameter->var->name) || !$parameter->type instanceof Node\Name) continue;
@@ -123,6 +126,11 @@ final class Evaluator
             }
             if ($statement instanceof Node\Stmt\Foreach_) {
                 $sum = $sum->plus($this->expression($statement->expr, $class, $file, $env, $stack));
+                $iterable = $this->bound($statement->expr, $class, $file, $env);
+                if (!isset($iterable['count'])) {
+                    $consumption = $this->consume($iterable, $stack, $file);
+                    $sum = $sum->plus(new Estimate(0, $consumption->upper, $consumption->unknown, $consumption->cycles));
+                }
                 if ($statement->byRef) {
                     $this->invalidateTarget($statement->expr, $env);
                     $sum = $sum->plus(Estimate::unknown('reference foreach at ' . $file . ':' . $statement->getStartLine()));
@@ -181,6 +189,23 @@ final class Evaluator
     {
         if (++$this->visits > 25_000) return Estimate::unknown('analysis work limit');
         if ($expr instanceof Node\Expr\Closure || $expr instanceof Node\Expr\ArrowFunction) return new Estimate();
+        if ($expr instanceof Node\Expr\PropertyFetch || $expr instanceof Node\Expr\NullsafePropertyFetch) return $this->expression($expr->var, $class, $file, $env, $stack)->plus($this->propertyEffect($expr, false, $class, $file, $env));
+        if ($expr instanceof Node\Expr\Clone_) return $this->expression($expr->expr, $class, $file, $env, $stack)->plus(Estimate::unknown('object clone hooks at ' . $file));
+        if ($expr instanceof Node\Expr\BinaryOp\Concat) {
+            $effect = $this->expression($expr->left, $class, $file, $env, $stack);
+            $left = $this->bound($expr->left, $class, $file, $env);
+            $effect = $effect->plus($this->expression($expr->right, $class, $file, $env, $stack));
+            return ($left['scalar'] ?? false) && ($this->bound($expr->right, $class, $file, $env)['scalar'] ?? false) ? $effect : $effect->plus(Estimate::unknown('object string conversion at ' . $file));
+        }
+        if ($expr instanceof Node\Expr\AssignOp\Concat || $expr instanceof Node\Scalar\InterpolatedString) { if ($expr instanceof Node\Expr\AssignOp\Concat) $this->invalidateTarget($expr->var, $env); return Estimate::unknown('string conversion hooks at ' . $file); }
+        if ($expr instanceof Node\Expr\Cast\String_) {
+            $effect = $this->expression($expr->expr, $class, $file, $env, $stack);
+            return ($this->bound($expr->expr, $class, $file, $env)['scalar'] ?? false) ? $effect : $effect->plus(Estimate::unknown('object string conversion at ' . $file));
+        }
+        if ($expr instanceof Node\Expr\YieldFrom) {
+            $effect = $this->expression($expr->expr, $class, $file, $env, $stack);
+            return $effect->plus($this->consume($this->bound($expr->expr, $class, $file, $env), $stack, $file));
+        }
         if ($expr instanceof Node\Expr\BinaryOp\Pipe) {
             $sum = $this->expression($expr->left, $class, $file, $env, $stack);
             $argument = $this->bound($expr->left, $class, $file, $env);
@@ -196,12 +221,14 @@ final class Evaluator
             [$argumentEffects, $arguments] = $this->evaluateArguments($expr, $class, $file, $env, $stack);
             $sum = $sum->plus($argumentEffects);
             if (!$expr->name instanceof Node\Identifier) return $sum->plus(Estimate::unknown('dynamic method call at ' . $file . ':' . $expr->getStartLine()));
+            if (($effect = $this->specialMethod($selected, $expr->name->toString(), $arguments, $stack, $file)) !== null) return $sum->plus($effect);
             if (strtolower($expr->name->toString()) === '__invoke' && ($target = $selected['callable'] ?? null) !== null) {
                 $effect = $this->invoke($target, $arguments, $stack, $file);
                 return $sum->plus($expr instanceof Node\Expr\NullsafeMethodCall ? $effect->branch(new Estimate()) : $effect);
             }
             $receiver = $selected['object'] ?? null;
             if ($receiver === null) return $sum->plus(Estimate::unknown('unknown receiver for ' . $expr->name . ' at ' . $file . ':' . $expr->getStartLine()));
+            $arguments[] = [...$selected, 'argument_name' => "\0this"];
             $effect = $this->call($receiver, $expr->name->toString(), $class, $file, $stack, $arguments);
             return $sum->plus($expr instanceof Node\Expr\NullsafeMethodCall ? $effect->branch(new Estimate()) : $effect);
         }
@@ -232,7 +259,9 @@ final class Evaluator
             return $sum->plus(Estimate::unknown('reference alias assignment at ' . $file . ':' . $expr->getStartLine()));
         }
         if ($expr instanceof Node\Expr\Assign) {
-            $sum = $this->expression($expr->expr, $class, $file, $env, $stack);
+            $sum = new Estimate();
+            if ($expr->var instanceof Node\Expr\PropertyFetch) $sum = $sum->plus($this->expression($expr->var->var, $class, $file, $env, $stack))->plus($this->propertyEffect($expr->var, true, $class, $file, $env));
+            $sum = $sum->plus($this->expression($expr->expr, $class, $file, $env, $stack));
             if ($expr->var instanceof Node\Expr\Variable && is_string($expr->var->name)) {
                 $value = $this->bound($expr->expr, $class, $file, $env);
                 unset($env[$expr->var->name]);
@@ -275,6 +304,7 @@ final class Evaluator
                 }
                 if ($this->program->functionModel($candidate) !== null) return $sum->plus($this->functionCall($candidate, $stack, $arguments));
             }
+            if (($effect = $this->extendedBuiltin($expr, $file, $env, $stack, $arguments)) !== null) return $sum->plus($effect);
             $effect = $this->callbackBuiltin($expr, $class, $file, $env, $stack, $arguments);
             if ($effect !== null) return $sum->plus($effect);
             if ($this->isScalarBuiltin($expr, $class, $file, $env, $arguments) || $this->isPureArrayBuiltin($expr, $class)) return $sum;
@@ -362,8 +392,13 @@ final class Evaluator
 
     private function boundInner(Node\Expr $node, string $class, string $file, array $env): array
     {
+        if ($node instanceof Node\Expr\PropertyFetch && $node->name instanceof Node\Identifier) {
+            $holder = $this->bound($node->var, $class, $file, $env);
+            if (isset($holder['properties'][$node->name->toString()])) return $holder['properties'][$node->name->toString()];
+        }
         if ($node instanceof Node\Expr\Assign) return $node->var instanceof Node\Expr\Variable && is_string($node->var->name) && isset($env["\0values"][$node->var->name]) ? $env["\0values"][$node->var->name] : $this->bound($node->expr, $class, $file, $env);
         if ($node instanceof Node\Expr\Array_ && $this->containsAssignment($node)) return ['count' => $this->literalCount($node)];
+        if ((!method_exists($node, 'isFirstClassCallable') || !$node->isFirstClassCallable()) && !$this->containsAssignment($node->args ?? []) && ($special = $this->specialBound($node, $class, $file, $env)) !== null) return $special;
         $constant = null;
         if ($node instanceof Node\Expr\ClassConstFetch && $node->name instanceof Node\Identifier) {
             $owner = $this->className($node->class, $class);
@@ -450,7 +485,16 @@ final class Evaluator
             $scalar = $type !== null;
             foreach ($type?->atomicTypes ?? [] as $atomic) if (!$atomic instanceof ScalarType || !in_array($atomic->kind, [ScalarTypeKind::Boolean, ScalarTypeKind::Integer, ScalarTypeKind::Float, ScalarTypeKind::String], true)) $scalar = false;
         }
-        return ['object' => $object, 'callable' => $callback, 'count' => $count, 'scalar' => $scalar, 'element' => $element];
+        $members = null;
+        if ($node instanceof Node\Expr\Array_) {
+            $members = []; $keys = [];
+            foreach ($node->items as $item) {
+                if ($item === null || $item->unpack || $item->byRef || $item->key !== null && !$item->key instanceof Node\Scalar\String_) { $members = null; break; }
+                if ($item->key !== null) { if (is_numeric($item->key->value) || in_array($item->key->value, $keys, true)) { $members = null; break; } $keys[] = $item->key->value; }
+                $members[] = [...$this->bound($item->value, $class, $file, $env), 'argument_name' => $item->key?->value];
+            }
+        }
+        return ['object' => $object, 'callable' => $callback, 'count' => $count, 'scalar' => $scalar, 'element' => $element, 'members' => $members];
     }
 
     private function className(Node $node, string $class): ?string
@@ -467,7 +511,7 @@ final class Evaluator
     private function invoke(?object $target, array $arguments, array $stack, string $file): Estimate
     {
         if ($target === null) return Estimate::unknown('unresolved callback invocation at ' . $file);
-        if ($target->kind === 'method') return $this->call($target->owner, $target->name, '', $file, $stack, $arguments);
+        if ($target->kind === 'method') { if (!in_array("\0this", array_column($arguments, 'argument_name'), true)) $arguments[] = ['object' => $target->owner, 'argument_name' => "\0this"]; return $this->call($target->owner, $target->name, '', $file, $stack, $arguments); }
         if ($target->kind === 'function') {
             $builtin = strtolower($target->name);
             if ($this->program->functionModel($builtin) === null && !isset($this->program->ambiguousFunctions[$builtin]) && $arguments !== [] && in_array($builtin, ['mb_trim', 'max', 'min', 'trim', 'strlen', 'strtolower', 'strtoupper', 'intval', 'floatval', 'boolval', 'strval'], true)) {
@@ -476,7 +520,7 @@ final class Evaluator
             }
             return $this->functionCall($target->name, $stack, $arguments);
         }
-        if ($this->hasYield($target->node)) return new Estimate();
+        if ($this->hasYield($target->node)) { if (!$this->consumeGenerator) return new Estimate(); $this->consumeGenerator = false; }
         $key = 'closure:' . $target->file . ':' . $target->node->getStartFilePos();
         if (in_array($key, $stack, true)) return Estimate::unknown('callback recursion has unknown invocation bound: ' . $key);
         if (count($stack) >= 48) return Estimate::unknown('call depth limit');
@@ -485,6 +529,168 @@ final class Evaluator
         return $target->node instanceof Node\Expr\ArrowFunction
             ? $this->expression($target->node->expr, $target->class, $target->file, $scope, [...$stack, $key])
             : $this->statements($target->node->stmts, $target->class, $target->file, $scope, [...$stack, $key]);
+    }
+
+    private function propertyEffect(Node\Expr $node, bool $write, string $class, string $file, array $env): Estimate
+    {
+        $owner = $this->receiver($node->var, $class, $file, $env);
+        if ($owner === null) return Estimate::unknown('unresolved property hooks at ' . $file);
+        $property = $node->name instanceof Node\Identifier ? $node->name->toString() : '';
+        for ($depth = 0; $owner !== null && $depth < 48; ++$depth) {
+            if (in_array($property, $this->program->propertyHooks[$owner] ?? [], true) || $this->program->method($owner, $write ? '__set' : '__get') !== null || $this->program->method($owner, '__isset') !== null || $this->program->method($owner, '__unset') !== null) return Estimate::unknown('property or magic access hooks for ' . $owner . '::' . $property . ' at ' . $file);
+            $owner = $this->program->parentClass($owner);
+        }
+        return new Estimate();
+    }
+    private function selectedCallable(Node\Expr $node, string $class, string $file, array $env): ?object
+    {
+        if (($node instanceof Node\Expr\MethodCall || $node instanceof Node\Expr\StaticCall) && $node->name instanceof Node\Identifier) {
+            $owner = $node instanceof Node\Expr\MethodCall ? $this->receiver($node->var, $class, $file, $env) : $this->className($node->class, $class);
+            return $owner === null ? null : (object) ['kind' => 'method', 'owner' => $owner, 'name' => $node->name->toString()];
+        }
+        if ($node instanceof Node\Expr\FuncCall) {
+            if (!$node->name instanceof Node\Name) return $this->bound($node->name, $class, $file, $env)['callable'] ?? null;
+            $ns = $node->name->getAttribute('namespacedName');
+            $name = $ns instanceof Node\Name && $this->program->functionModel(Program::name($ns)) !== null ? Program::name($ns) : Program::name($node->name);
+            return (object) ['kind' => 'function', 'name' => $name];
+        }
+        return null;
+    }
+    private function specialBound(Node\Expr $node, string $class, string $file, array $env): ?array
+    {
+        $target = $this->selectedCallable($node, $class, $file, $env);
+        $model = $target === null ? null : match ($target->kind) {
+            'method' => $this->program->method($target->owner, $target->name)['node'] ?? null,
+            'function' => $this->program->functionModel($target->name)['node'] ?? null,
+            default => $target->node,
+        };
+        if ($model !== null && $this->hasYield($model)) return ['object' => 'Generator', 'deferred' => (object) ['target' => $target, 'arguments' => $this->boundArgs($node, $class, $file, $env)]];
+        if (($node instanceof Node\Expr\StaticCall || $node instanceof Node\Expr\MethodCall) && $node->name instanceof Node\Identifier) {
+            $method = strtolower($node->name->toString()); $args = $this->boundArgs($node, $class, $file, $env); $target = null;
+            if ($node instanceof Node\Expr\StaticCall && strcasecmp($this->className($node->class, $class) ?? '', 'Closure') === 0 && $method === 'bind') $target = $this->argument($args, 0, 'closure');
+            elseif ($node instanceof Node\Expr\MethodCall && $method === 'bindto') $target = $this->bound($node->var, $class, $file, $env);
+            if ($target !== null) { $position = $node instanceof Node\Expr\StaticCall ? 1 : 0; if ($this->argument($args, $position + 1, 'newScope') !== null) return []; return $this->rebind($target, $this->argument($args, $position, 'newThis')); }
+        }
+        if ($node instanceof Node\Expr\New_ && $node->class instanceof Node\Name) {
+            $owner = $this->className($node->class, $class); $args = $this->boundArgs($node, $class, $file, $env); $reflection = null;
+            if (strcasecmp($owner ?? '', 'ReflectionFunction') === 0) $reflection = $this->argument($args, 0, 'function')['callable'] ?? null;
+            elseif (strcasecmp($owner ?? '', 'ReflectionMethod') === 0) {
+                $first = $node->args[0]->value ?? null;
+                $type = $this->argument($args, 0, 'objectOrMethod')['object'] ?? ($first instanceof Node\Scalar\String_ ? $first->value : ($first instanceof Node\Expr\ClassConstFetch ? $this->className($first->class, $class) : null));
+                $method = $node->args[1]->value ?? null;
+                if ($type !== null && $method instanceof Node\Scalar\String_) $reflection = (object) ['kind' => 'method', 'owner' => $type, 'name' => $method->value];
+            } else {
+                $constructor = $this->program->method($owner, '__construct');
+                if ($constructor === null || $constructor['node']->stmts !== []) return null;
+                $properties = [];
+                foreach ($constructor['node']->params as $index => $parameter) {
+                    if (($parameter->flags & 64) === 0 || !$parameter->var instanceof Node\Expr\Variable || !is_string($parameter->var->name)) continue;
+                    $value = $this->argument($args, $index, $parameter->var->name);
+                    if ($value !== null) $properties[$parameter->var->name] = $value;
+                }
+                return ['object' => $owner, 'properties' => $properties];
+            }
+            return ['object' => $owner, 'reflection' => $reflection];
+        }
+        return null;
+    }
+    private function rebind(array $target, ?array $receiver, bool $changeScope = false): array
+    {
+        $callback = $target['callable'] ?? null;
+        if ($callback === null || $callback->kind !== 'closure' || $callback->node->static) return [];
+        $callback = clone $callback;
+        if ($changeScope) $callback->class = $receiver['object'] ?? '';
+        unset($callback->scope['this'], $callback->scope["\0values"]['this']);
+        if (isset($receiver['object'])) $callback->scope['this'] = $receiver['object'];
+        return ['callable' => $callback];
+    }
+    private function specialMethod(array $target, string $method, array $args, array $stack, string $file): ?Estimate
+    {
+        if (isset($target['callable'])) {
+            if (strcasecmp($method, 'bindTo') === 0) return new Estimate();
+            if (strcasecmp($method, 'call') === 0) return $this->invoke($this->rebind($target, $this->argument($args, 0, 'newThis'), true)['callable'] ?? null, array_slice($args, 1), $stack, $file);
+        }
+        if (($callback = $target['reflection'] ?? null) !== null) {
+            $offset = strcasecmp($target['object'] ?? '', 'ReflectionMethod') === 0 ? 1 : 0;
+            $values = match (strtolower($method)) { 'invoke' => array_slice($args, $offset), 'invokeargs' => $this->argument($args, $offset, 'args')['members'] ?? [['argument_name' => '*']], default => null };
+            if ($values === null) return null;
+            if ($offset === 1 && ($receiver = $this->argument($args, 0, 'object')) !== null) $values[] = [...$receiver, 'argument_name' => "\0this"];
+            return $this->invoke($callback, $values, $stack, $file);
+        }
+        return null;
+    }
+    private function consume(array $value, array $stack, string $file): Estimate
+    {
+        if (isset($value['deferred'])) {
+            $deferred = $value['deferred'];
+            if (in_array($deferred, $this->consumed, true)) return Estimate::unknown('generator already consumed or advanced at ' . $file);
+            $this->consumed[] = $deferred; $this->consumeGenerator = true;
+            try { return $this->invoke($deferred->target, $deferred->arguments, $stack, $file); }
+            finally { $this->consumeGenerator = false; }
+        }
+        return isset($value['members']) || isset($value['count']) ? new Estimate() : Estimate::unknown('unresolved iterator execution at ' . $file);
+    }
+    private function repeatedCallback(?object $target, array $args, string $builtin, array $stack, string $file): Estimate
+    {
+        ++$this->uncertainCallback;
+        try { $effect = $this->invoke($target, $args, $stack, $file); }
+        finally { --$this->uncertainCallback; }
+        return $effect->upper !== 0 || $effect->unknown !== [] ? new Estimate(0, null, [...$effect->unknown, 'unknown callback invocation count for ' . $builtin . ' at ' . $file], $effect->cycles) : $effect;
+    }
+    private function recursiveWalk(array $value, ?object $callback, array $extra, array $stack, string $file): Estimate
+    {
+        if (!isset($value['members'])) return $this->repeatedCallback($callback, [[], ['scalar' => true], $extra], 'array_walk_recursive', $stack, $file);
+        $result = new Estimate();
+        foreach ($value['members'] as $member) {
+            if (isset($member['members'])) $effect = $this->recursiveWalk($member, $callback, $extra, $stack, $file);
+            elseif (!($member['scalar'] ?? false) && !isset($member['object'])) $effect = $this->repeatedCallback($callback, [[], ['scalar' => true], [...$extra, 'argument_name' => null]], 'array_walk_recursive', $stack, $file);
+            else {
+                ++$this->uncertainCallback;
+                try { $effect = $this->invoke($callback, [[...$member, 'argument_name' => null], ['scalar' => true], [...$extra, 'argument_name' => null]], $stack, $file); }
+                finally { --$this->uncertainCallback; }
+            }
+            $result = $result->plus($effect);
+        }
+        return $result;
+    }
+    private function extendedBuiltin(Node\Expr\FuncCall $node, string $file, array &$env, array $stack, array $args): ?Estimate
+    {
+        $builtin = strtolower(Program::name($node->name)); $ns = $node->name->getAttribute('namespacedName');
+        if (!$node->name instanceof Node\Name\FullyQualified && $ns instanceof Node\Name && str_contains(Program::name($ns), '\\')) return null;
+        $sort = in_array($builtin, ['usort', 'uasort', 'uksort'], true);
+        $compare = in_array($builtin, ['array_udiff', 'array_udiff_assoc', 'array_udiff_uassoc', 'array_uintersect', 'array_uintersect_assoc', 'array_uintersect_uassoc', 'array_diff_uassoc', 'array_diff_ukey', 'array_intersect_uassoc', 'array_intersect_ukey'], true);
+        $registration = in_array($builtin, ['register_shutdown_function', 'set_error_handler', 'set_exception_handler', 'spl_autoload_register'], true);
+        if (!$sort && !$compare && !$registration && !in_array($builtin, ['array_walk_recursive', 'preg_replace_callback', 'preg_replace_callback_array', 'iterator_apply', 'iterator_count', 'iterator_to_array'], true)) return null;
+        if (in_array('*', array_column($args, 'argument_name'), true)) return Estimate::unknown('unresolved callback arguments to ' . $builtin);
+        if ($registration) return Estimate::unknown('deferred callback registration via ' . $builtin . ' at ' . $file);
+        $first = $this->argument($args, 0, str_starts_with($builtin, 'iterator_') ? 'iterator' : 'array') ?? [];
+        if ($sort || $builtin === 'array_walk_recursive') foreach ($node->args as $index => $arg) if ($index === 0 && $arg->name === null || $arg->name?->toString() === 'array') $this->invalidateTarget($arg->value, $env);
+        if ($builtin === 'iterator_count' || $builtin === 'iterator_to_array') return $this->consume($first, $stack, $file);
+        if ($builtin === 'iterator_apply') {
+            $effect = $this->consume($first, $stack, $file);
+            return (new Estimate(0, $effect->upper, $effect->unknown, $effect->cycles))->plus($this->repeatedCallback($this->argument($args, 1, 'callback')['callable'] ?? null, $this->argument($args, 2, 'args')['members'] ?? [], $builtin, $stack, $file));
+        }
+        if ($builtin === 'array_walk_recursive') return $this->recursiveWalk($first, $this->argument($args, 1, 'callback')['callable'] ?? null, $this->argument($args, 2, 'arg') ?? [], $stack, $file);
+        if ($sort) {
+            if (isset($first['count']) && $first['count'] < 2) return new Estimate();
+            $value = $builtin === 'uksort' ? ['scalar' => true] : ($first['element'] ?? []);
+            return $this->repeatedCallback($this->argument($args, 1, 'callback')['callable'] ?? null, [$value, $value], $builtin, $stack, $file);
+        }
+        if ($compare) {
+            $count = str_ends_with($builtin, '_uassoc') && (str_starts_with($builtin, 'array_udiff') || str_starts_with($builtin, 'array_uintersect')) ? 2 : 1;
+            $effect = new Estimate();
+            foreach (array_slice($args, -$count) as $callback) $effect = $effect->plus($this->repeatedCallback($callback['callable'] ?? null, [[], []], $builtin, $stack, $file));
+            foreach (array_slice($args, 0, -$count) as $value) if (($value['count'] ?? null) !== 0 && !($value['element']['scalar'] ?? false)) return $effect->plus(Estimate::unknown('opaque comparison values for ' . $builtin . ' at ' . $file));
+            return $effect;
+        }
+        if ($builtin === 'preg_replace_callback_array') {
+            $callbacks = $this->argument($args, 0, 'pattern')['members'] ?? null;
+            if ($callbacks === null) return Estimate::unknown('unresolved callback map for ' . $builtin . ' at ' . $file);
+            $effect = new Estimate();
+            foreach ($callbacks as $callback) $effect = $effect->plus($this->repeatedCallback($callback['callable'] ?? null, [[]], $builtin, $stack, $file));
+            return $effect->plus(Estimate::unknown('regular expression callback result conversion at ' . $file));
+        }
+        return $this->repeatedCallback($this->argument($args, 1, 'callback')['callable'] ?? null, [[]], $builtin, $stack, $file)->plus(Estimate::unknown('regular expression callback result conversion at ' . $file));
     }
 
     private function callbackBuiltin(Node\Expr\FuncCall $node, string $class, string $file, array &$env, array $stack, array $evaluated): ?Estimate
@@ -506,12 +712,7 @@ final class Evaluator
         $position = in_array($builtin, ['call_user_func', 'call_user_func_array', 'array_map'], true) ? 0 : 1;
         $target = $args[$position]['callable'] ?? null;
         if ($builtin === 'call_user_func') return $this->invoke($target, array_slice($args, 1), $stack, $file);
-        if ($builtin === 'call_user_func_array') {
-            $values = $node->args[1]->value ?? null;
-            $arguments = $values instanceof Node\Expr\Array_ && !$this->containsAssignment($values) && $this->literalCount($values) !== null
-                ? array_map(fn ($item): array => $this->bound($item->value, $class, $file, $env), $values->items) : [['argument_name' => '*']];
-            return $this->invoke($target, $arguments, $stack, $file);
-        }
+        if ($builtin === 'call_user_func_array') return $this->invoke($target, $args[1]['members'] ?? [['argument_name' => '*']], $stack, $file);
         if ($builtin === 'array_filter' && count($args) < 2) return new Estimate();
         $count = $args[$builtin === 'array_map' ? 1 : 0]['count'] ?? null;
         if ($builtin === 'array_map') foreach (array_slice($args, 2) as $arg) $count = $count === null || ($arg['count'] ?? null) === null ? null : max($count, $arg['count']);
@@ -649,7 +850,7 @@ final class Evaluator
     {
         if ($expr instanceof Node\Expr\Variable && is_string($expr->name)) return $env[$expr->name] ?? null;
         if ($expr instanceof Node\Expr\PropertyFetch && $expr->var instanceof Node\Expr\Variable && $expr->var->name === 'this' && $expr->name instanceof Node\Identifier) {
-            $owner = $class;
+            $owner = $env['this'] ?? '';
             for ($depth = 0; $depth < 48 && $owner !== null; ++$depth) {
                 if (isset($this->program->properties[$owner][$expr->name->toString()])) return $this->program->properties[$owner][$expr->name->toString()];
                 $owner = $this->program->parentClass($owner);
@@ -693,7 +894,7 @@ final class Evaluator
     /** @param list<string> $stack */
     private function call(string $receiver, string $method, string $class, string $file, array $stack, array $arguments = []): Estimate
     {
-        if (strcasecmp($receiver, 'Closure') === 0 && strcasecmp($method, 'fromCallable') === 0) return new Estimate();
+        if (strcasecmp($receiver, 'Closure') === 0 && in_array(strtolower($method), ['fromcallable', 'bind'], true)) return new Estimate();
         $api = $this->program->apiType($receiver);
         if ($api !== null && strcasecmp($api, $receiver) !== 0 && $this->program->method($receiver, $method) !== null) return $this->method($receiver, $method, $stack, $arguments);
         $receiver = $api ?? $receiver;

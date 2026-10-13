@@ -41,6 +41,7 @@ final class Program
     public array $parents = [];
     public array $interfaces = [];
     public array $constants = [];
+    public array $propertyHooks = [];
     /** @var array<string, string> */
     public array $parseFailures = [];
     public bool $native = false;
@@ -145,6 +146,7 @@ final class Program
                 $this->properties[$className] = [];
                 $declaredPropertyTypes = [];
                 foreach ($class->getProperties() as $property) {
+                    if ($property->hooks !== []) foreach ($property->props as $prop) $this->propertyHooks[$className][] = $prop->name->toString();
                     $type = $property->type instanceof Node\Name ? self::name($property->type) : null;
                     if ($type !== null) foreach ($property->props as $prop) {
                         $name = $prop->name->toString();
@@ -158,6 +160,7 @@ final class Program
                     if (strtolower($method->name->toString()) === '__construct') {
                         $parameterClasses = [];
                         foreach ($method->params as $position => $parameter) {
+                            if ($parameter->hooks !== [] && $parameter->var instanceof Node\Expr\Variable && is_string($parameter->var->name)) $this->propertyHooks[$className][] = $parameter->var->name;
                             if (!$parameter->var instanceof Node\Expr\Variable || !is_string($parameter->var->name) || !$parameter->type instanceof Node\Name) continue;
                             $type = self::name($parameter->type);
                             $target = null;

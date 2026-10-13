@@ -57,3 +57,5 @@ Higher-order callback execution is modeled for supported consumers and source-vi
 ## Candidate engine 0.4.0
 
 This branch prepares engine 0.4.0 and an independent cache. Release downloads are reserved for Architecture Graph v1.4.0-RC1; until those assets are published, build locally or use the matching CI binary with `MAGO_NATIVE_ENGINE`. When combining extensions in one worker, use all engine-0.4.0 companion branches: the PHP adapter namespace is shared, so mixed adapter generations are unsupported.
+
+Framework hook discovery uses compact declarations from the existing Rust project session. Ordinary method bodies are omitted from exported hook metadata; subscriber registration expressions are retained. See CALLBACK_COVERAGE.md for the contract matrix, per-invocation hook scope and explicit property-hook/parser limits.

@@ -163,3 +163,19 @@ DBAL Connection/Statement and query-builder execution contracts count logical AP
 Arbitrary callback properties, complex returned callbacks, reflective invocation, unsupported consumers, unresolved dynamic types and unknown namespace fallback remain incomplete. These static bounds do not measure physical SQL: caches, middleware, transaction statements and deferred ORM behavior require runtime instrumentation for actual database counts.
 
 The [neutral callback corpus](tests/callback-effects-corpus) exercises 60 entrypoints, including query-free search classes, external-call continuation, real cycles, evaluation order and mutable captures. PHP/Rust fixture parity does not establish parity on your project. Until candidate assets are published, build engine 0.4.0 and set `MAGO_NATIVE_ENGINE` as described in [NATIVE_BACKEND.md](NATIVE_BACKEND.md).
+
+## Framework hooks and additional PHP consumers
+
+The candidate now includes comparator/regex/recursive-walk/iterator consumers, supported Closure/reflection invocation and deferred registration families. See [CALLBACK_COVERAGE.md](CALLBACK_COVERAGE.md) for the exact contract matrix and limits.
+
+Framework hook candidates are discovered automatically by exact attributes and framework ancestry, including methods in arbitrary service filenames. `query-budget-hook-inspection` describes one invocation and preserves declaration/registration evidence; it does not add every listener or asynchronous handler to a controller's budget. Supply compiled tags with Symfony Wiring when methods are configured rather than declared:
+
+```php
+$extension = QueryBudgetExtension::create(
+    classBindings: $loader->load()->classBindings(),
+    constructorBindings: $loader->constructorClassBindings(),
+    hookEntrypoints: $loader->frameworkHookEntrypoints(),
+);
+```
+
+Inspect `$loader->frameworkHookRegistrations()` for unresolved defaults/subscribers. `inspectFrameworkHooks($analysis)` is also exposed by all three extensions. Disable automatic source discovery with `discoverFrameworkHooks: false`; explicit hook targets still apply. Query Budget's Rust path reuses native declaration metadata rather than collecting a second full project source snapshot in PHP.
