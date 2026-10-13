@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0-RC3 — pending validation
+
+- Fix false query-budget recursion and query counts caused by executing first-class callable targets during binding. Preserve binding-expression effects, actual recursive-call detection and incomplete higher-order bounds.
+- Use engine 0.3.0 and its separate cache so the corrected evaluator is selected; synchronize the shared kernel across all three extensions.
+
+- Add twelve neutral typed forwarding controllers with same-named methods, shared timers, branching delegation and a real cycle control; assert exact PHP/Rust report parity.
+- Retain native recursion paths in an operator-selected trace file because Mago captures worker stderr internally.
+- The first-class callable pattern is reproduced and corrected; full parity on the external project, including its three other incomplete differences, still needs a rerun.
+
 ## 1.1.0-RC2 — pending validation
 
 - Make Rust the default computational backend; require a compatible engine and remove automatic PHP grammar fallback.

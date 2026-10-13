@@ -8,6 +8,8 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 cp "$root/tests/corpus/mago.toml" "$work/mago.toml"
+# Match the dedicated inspection benchmark deadline on shared CI runners.
+printf '\nrequest-timeout-ms = 180000\n' >> "$work/mago.toml"
 cp -R "$root/tests/corpus/src" "$work/src"
 mkdir "$work/src/Many"
 cat > "$work/worker.php" <<'PHP'
