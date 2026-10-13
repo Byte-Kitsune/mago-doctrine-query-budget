@@ -9,7 +9,18 @@ use Mago\Sdk\Extension;
 
 final class QueryBudgetExtension
 {
-    public const VERSION = '1.1.2';
+    public const VERSION = '1.2.0-RC1';
+    /** Name-resolved hook candidates from the exact snapshot; declarations do not prove activation. */
+    public static function inspectFrameworkHooks(\Mago\Sdk\Analyzer\ProjectAnalysis $analysis): array
+    {
+        if (!class_exists(\ByteKitsune\MagoNative\Engine::class, false)) require_once __DIR__ . '/NativeEngine.php';
+        if (!class_exists(\ByteKitsune\MagoNative\Parser::class, false)) require_once __DIR__ . '/NativeParser.php';
+        if (!class_exists(\ByteKitsune\MagoNative\FrameworkHooks::class, false)) require_once __DIR__ . '/FrameworkHooks.php';
+        $sources = [];
+        foreach ($analysis->files as $file) if (str_ends_with($file->file, '.php')) $sources[$file->file] = $file->getSourceFile()->contents;
+        return \ByteKitsune\MagoNative\FrameworkHooks::discover($sources);
+    }
+
     /**
      * Inspect every modeled method in one exact source file, regardless of its
      * name, visibility or configured warning thresholds. The snapshot must retain
@@ -73,6 +84,8 @@ final class QueryBudgetExtension
      * @param array<string, array<int, ?string>> $constructorBindings Compiled service references by owner class and constructor position.
      * @param list<string> $entrypointSuffixes
      * @param list<string> $inspectEntrypoints Exact class names, optionally followed by ::method.
+     * @param bool $discoverFrameworkHooks Discover declaration candidates; budgets cover one invocation, not activation.
+     * @param list<string> $hookEntrypoints Exact operator/compiled-container Class::method registrations.
      */
     public static function create(
         array $classBindings = [],
@@ -83,6 +96,8 @@ final class QueryBudgetExtension
         int $incompleteIssueLimit = 25,
         bool $assumeGlobalScalarBuiltins = false,
         array $constructorBindings = [],
+        bool $discoverFrameworkHooks = true,
+        array $hookEntrypoints = [],
     ): Extension {
         if ($warningThreshold < 1 || $errorThreshold < $warningThreshold || $entrypointSuffixes === [] || $incompleteIssueLimit < 0 || $incompleteIssueLimit > 1000) {
             throw new \InvalidArgumentException('Invalid query budget thresholds or selectors.');
@@ -114,11 +129,22 @@ final class QueryBudgetExtension
             if (isset($normalized[$key])) throw new \InvalidArgumentException('Duplicate inspection entrypoint.');
             $normalized[$key] = $selection;
         }
+        if (count($hookEntrypoints) > 10000) throw new \InvalidArgumentException('At most 10000 hook entrypoints may be supplied.');
+        $hooks = [];
+        foreach ($hookEntrypoints as $target) {
+            if (!is_string($target) || strlen($target) > 512) throw new \InvalidArgumentException('Invalid hook entrypoint.');
+            $target = ltrim($target, '\\'); $parts = explode('::', $target);
+            if (count($parts) !== 2 || !preg_match('/\A[A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*\z/', $parts[0])
+                || !preg_match('/\A[A-Za-z_][A-Za-z0-9_]*\z/', $parts[1])) {
+                throw new \InvalidArgumentException('Hook entrypoints must be exact Class::method targets.');
+            }
+            $hooks[strtolower($target)] = $target;
+        }
         return new Extension(
             identifier: 'byte-kitsune/doctrine-query-budget',
             name: 'Doctrine query budget',
             version: self::VERSION,
-            analyzerPlugins: [new QueryBudgetPlugin($classBindings, $entrypointSuffixes, $warningThreshold, $errorThreshold, array_values($normalized), $incompleteIssueLimit, $assumeGlobalScalarBuiltins, $constructorBindings)],
+            analyzerPlugins: [new QueryBudgetPlugin($classBindings, $entrypointSuffixes, $warningThreshold, $errorThreshold, array_values($normalized), $incompleteIssueLimit, $assumeGlobalScalarBuiltins, $constructorBindings, $discoverFrameworkHooks, array_values($hooks))],
         );
     }
 }

@@ -21,6 +21,9 @@ final class NativeBudget
             Engine::initializeBudget([
                 'properties' => (object) array_map(static fn (array $values): object => (object) $values, $program->properties),
                 'parents' => (object) $program->parents,
+                'interfaces' => (object) $program->interfaces,
+                'constants' => (object) $program->constants,
+                'property_hooks' => (object) $program->propertyHooks,
                 'trait_uses' => (object) $program->traitUses,
                 'trait_definitions' => (object) $program->traitDefinitions,
                 'adapted_traits' => (object) $program->adaptedTraitUses,
