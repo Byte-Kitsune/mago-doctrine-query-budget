@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add twelve neutral typed forwarding controllers with same-named methods, shared timers, branching delegation and a real cycle control; assert exact PHP/Rust report parity.
+- Retain native recursion paths in an operator-selected trace file because Mago captures worker stderr internally.
+- The externally reported extra recursion findings are still not reproduced; these changes do not claim a fix for them.
+
 ## 1.1.0-RC2 — pending validation
 
 - Make Rust the default computational backend; require a compatible engine and remove automatic PHP grammar fallback.
