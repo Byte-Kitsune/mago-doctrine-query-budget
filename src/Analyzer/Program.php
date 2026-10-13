@@ -81,15 +81,7 @@ final class Program
                 if ($file->size > 1_048_576) { $this->parseFailures[$file->file] = 'source file exceeds one MiB'; continue; }
                 try {
                     $source = $file->getSourceFile();
-                    try {
-                        $metadata = \ByteKitsune\MagoNative\Engine::indexBudgetSource($this->nativeSession, $file->file, $source->contents);
-                    } catch (\PhpParser\Error $error) {
-                        if (getenv('MAGO_NATIVE_STRICT') === '1' || !str_starts_with($error->getMessage(), 'Unsupported native syntax:')) throw $error;
-                        $nodes = (new ParserFactory())->createForNewestSupportedVersion()->parse($source->contents) ?? [];
-                        $nodes = (new NodeTraverser(new NameResolver()))->traverse($nodes);
-                        ++\ByteKitsune\MagoNative\Parser::$fallbackParses;
-                        $metadata = \ByteKitsune\MagoNative\Engine::indexBudgetNodes($this->nativeSession, $file->file, $nodes);
-                    }
+                    $metadata = \ByteKitsune\MagoNative\Engine::indexBudgetSource($this->nativeSession, $file->file, $source->contents);
                 } catch (\Throwable $error) { $this->parseFailures[$file->file] = $error::class; continue; }
                 foreach ($metadata as $method) {
                     $identifier = new Node\Identifier($method['name'], $method['name_attributes']);
