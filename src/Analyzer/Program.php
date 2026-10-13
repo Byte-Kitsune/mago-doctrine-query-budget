@@ -39,6 +39,8 @@ final class Program
     public array $properties = [];
     /** @var array<string, string> */
     public array $parents = [];
+    public array $interfaces = [];
+    public array $constants = [];
     /** @var array<string, string> */
     public array $parseFailures = [];
     public bool $native = false;
@@ -113,6 +115,13 @@ final class Program
                 continue;
             }
             $this->indexFunctions($statements, $file->file);
+            foreach ($finder->findInstanceOf($statements, Node\Stmt\Const_::class) as $declaration) foreach ($declaration->consts as $constant) {
+                $this->constants[$constant->namespacedName?->toString() ?? $constant->name->toString()] = ['node' => $constant->value, 'class' => '', 'file' => $file->file];
+            }
+            foreach ($finder->findInstanceOf($statements, Node\Stmt\Interface_::class) as $interface) {
+                $name = $interface->namespacedName?->toString() ?? $interface->name->toString();
+                $this->interfaces[$name] = array_map(self::name(...), $interface->extends);
+            }
             foreach ($finder->findInstanceOf($statements, Node\Stmt\Trait_::class) as $trait) {
                 if ($trait->name === null) continue;
                 $traitName = $trait->namespacedName?->toString() ?? $trait->name->toString();
@@ -128,6 +137,10 @@ final class Program
                 if ($class->name === null) continue;
                 $className = $class->namespacedName?->toString() ?? $class->name->toString();
                 if ($class->extends !== null) $this->parents[$className] = self::name($class->extends);
+                $this->interfaces[$className] = array_map(self::name(...), $class->implements);
+                foreach ($class->getConstants() as $declaration) foreach ($declaration->consts as $constant) {
+                    $this->constants[strtolower($className) . '::' . $constant->name->toString()] = ['node' => $constant->value, 'class' => $className, 'file' => $file->file];
+                }
                 $this->indexTraitUses($className, $class->stmts);
                 $this->properties[$className] = [];
                 $declaredPropertyTypes = [];
@@ -223,6 +236,28 @@ final class Program
         }
     }
 
+    public function parentClass(string $class): ?string
+    {
+        foreach ($this->parents as $owner => $parent) if (strcasecmp($owner, $class) === 0) return $parent;
+        return null;
+    }
+
+    public function apiType(string $class): ?string
+    {
+        $known = ['Doctrine\\DBAL\\Connection', 'Doctrine\\DBAL\\Statement', 'Doctrine\\DBAL\\Result', 'Doctrine\\DBAL\\Query\\QueryBuilder', 'Doctrine\\ORM\\QueryBuilder', 'Doctrine\\ORM\\Query', 'Doctrine\\ORM\\AbstractQuery', 'Doctrine\\ORM\\NativeQuery', 'Doctrine\\ORM\\EntityRepository', 'Doctrine\\Bundle\\DoctrineBundle\\Repository\\ServiceEntityRepository', 'Doctrine\\ORM\\EntityManagerInterface', 'Doctrine\\ORM\\EntityManager', 'Symfony\\Contracts\\Cache\\CacheInterface', 'Symfony\\Contracts\\Cache\\TagAwareCacheInterface'];
+        $queue = [$class]; $seen = [];
+        while ($queue !== []) {
+            $next = array_pop($queue);
+            if (count($seen) >= 48) return null;
+            if (isset($seen[strtolower($next)])) continue;
+            $seen[strtolower($next)] = true;
+            foreach ($known as $api) if (strcasecmp($api, $next) === 0) return $api;
+            if (($parent = $this->parentClass($next)) !== null) $queue[] = $parent;
+            foreach ($this->interfaces as $owner => $interfaces) if (strcasecmp($owner, $next) === 0) array_push($queue, ...$interfaces);
+        }
+        return null;
+    }
+
     public function functionModel(string $name): ?array
     {
         return $this->functions[strtolower(ltrim($name, '\\'))] ?? null;
@@ -236,7 +271,7 @@ final class Program
             if (!$this->traitGraphComplete($class, [])) return null;
             $found = $this->traitMethod($class, $method, $class, []);
             if ($found !== null) return $found;
-            $class = $this->parents[$class] ?? '';
+            $class = $this->parentClass($class) ?? '';
             if ($class === '') break;
         }
         return null;

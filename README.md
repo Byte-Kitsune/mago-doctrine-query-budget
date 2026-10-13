@@ -16,7 +16,7 @@ CI checks this floor and the latest compatible 1.x release.
 Requires PHP 8.2+ and Mago >=1.50.0,<2.0.0. Pin the stable release in your project:
 
 ```sh
-composer require --dev "carthage-software/mago:^1.50" byte-kitsune/mago-doctrine-query-budget:1.0.1
+composer require --dev "carthage-software/mago:^1.50" byte-kitsune/mago-doctrine-query-budget:1.1.2
 ```
 
 Add an extension host to `mago.toml`:
@@ -95,7 +95,7 @@ MAGO_QUERY_BUDGET_INSPECT='App\Controller\ReportController::index' vendor/bin/ma
 
 The model counts selected Doctrine DBAL `Connection`, `Statement`, and DBAL query-builder execution methods as one statement each. Constructing a query is not execution. ORM `Query` executions and standard repository methods are recognized, but cache, hydration and lazy-loading effects leave their upper bound unknown. Calls to project-defined top-level functions and unadapted trait methods are followed through the same source snapshot. `self::` and `parent::` resolve against source-visible classes. Trait adaptations and late-bound `static::` remain incomplete. Conditional early returns keep a finite upper bound when all reachable calls are modeled. `try/catch/finally` bodies are followed with a conservative upper bound: a catch may run after part of the try body, and finally runs afterward. A source-visible non-Doctrine search method inside a try block can therefore be proven query-free.
 
-Explicit global calls to `\mb_trim`, `\max`, and `\min` are treated as query-free only for literal scalar arguments or variables that Mago proves scalar. Explicit global calls to `\array_merge`, `\array_keys`, `\array_values`, `\array_reverse`, and `\array_slice` are query-free after their arguments are analyzed; these helpers do not invoke callbacks or object methods. Unqualified namespaced calls may resolve to application functions outside the analyzed snapshot, so they remain incomplete unless the function is source-visible. Set `assumeGlobalScalarBuiltins: true` only when your operator policy has verified that these three unqualified names are not overridden outside the source snapshot. The extension still follows source-visible overrides and imported function aliases before applying that assumption, and still requires scalar arguments. Callback functions such as `array_map` and `array_filter`, external collection methods, and response serialization are not assumed query-free. Their callbacks or lazy work can reach Doctrine; unresolved calls keep their names in the evidence. Unknown receivers, dynamic calls, other unsupported control flow and unbounded loops also remain incomplete. Static estimates are not measured SQL counts.
+Explicit global calls to `\mb_trim`, `\max`, and `\min` are treated as query-free only for literal scalar arguments or variables that Mago proves scalar. Explicit global calls to `\array_merge`, `\array_keys`, `\array_values`, `\array_reverse`, and `\array_slice` are query-free after their arguments are analyzed; these helpers do not invoke callbacks or object methods. Unqualified namespaced calls may resolve to application functions outside the analyzed snapshot, so they remain incomplete unless the function is source-visible. Set `assumeGlobalScalarBuiltins: true` only when your operator policy has verified that these three unqualified names are not overridden outside the source snapshot. The extension still follows source-visible overrides and imported function aliases before applying that assumption, and still requires scalar arguments. Modeled callback consumers are described below. External collection methods and response serialization are not assumed query-free: their callbacks or lazy work can reach Doctrine. Unresolved calls keep their names in the evidence. Unknown receivers, dynamic calls, other unsupported control flow and unbounded loops also remain incomplete. Static estimates are not measured SQL counts.
 
 Findings include:
 
@@ -149,3 +149,17 @@ Linux x86_64 and both macOS architectures are covered by native-mode CI.
 See [native backend details](NATIVE_BACKEND.md) for offline installation, source
 builds, explicit reference-backend comparisons and the pending project-specific
 recursion investigation.
+
+## Callback and query effects (1.2 candidate)
+
+The model resolves source-visible closures, arrows, string/array/first-class callables, invokable objects, `Closure::fromCallable`, simple callback-returning factories, named/default arguments and PHP 8.5 pipes and constant-expression callables. Creating a callable does not execute it. Callees and arguments follow PHP evaluation order; mutable bindings, reference captures and unknown callback properties retain uncertainty.
+
+`call_user_func`, `call_user_func_array`, `array_map`, `array_filter`, `array_walk`, `array_reduce`, `array_any`, `array_all`, `array_find` and `array_find_key` propagate callback effects. Literal arrays provide cardinalities; short-circuit consumers retain ranges. Unknown multiplicities remain incomplete when the callback has effects. Scalar builtin proofs do not establish that arbitrary object arguments or user overrides are harmless. The existing `assumeGlobalScalarBuiltins` opt-in remains restricted to `mb_trim`, `max` and `min`.
+
+Doctrine recognition uses fully qualified types, source-visible ancestry/interfaces, receiver provenance and modeled factories, rather than a class basename such as `Query`. Source-visible OpenSearch/vector-style query classes can be proven query-free by their bodies. An opaque external method is an unknown call, not proof of a Doctrine query: analysis continues and retains later known executions. Provide compiled Symfony constructor/class bindings for interface-to-service resolution.
+
+DBAL Connection/Statement and query-builder execution contracts count logical API executions; fetching an already obtained DBAL Result does not add another execution. ORM query/cache/hydration and UnitOfWork effects remain uncertain. `transactional`/`wrapInTransaction` follow callbacks with the supplied connection/entity manager. Symfony cache `get` follows its callback while retaining uncertainty for backend work, misses and invocation frequency; registering a deferred callback does not execute its body.
+
+Arbitrary callback properties, complex returned callbacks, reflective invocation, unsupported consumers, unresolved dynamic types and unknown namespace fallback remain incomplete. These static bounds do not measure physical SQL: caches, middleware, transaction statements and deferred ORM behavior require runtime instrumentation for actual database counts.
+
+The [neutral callback corpus](tests/callback-effects-corpus) exercises 60 entrypoints, including query-free search classes, external-call continuation, real cycles, evaluation order and mutable captures. PHP/Rust fixture parity does not establish parity on your project. Until candidate assets are published, build engine 0.4.0 and set `MAGO_NATIVE_ENGINE` as described in [NATIVE_BACKEND.md](NATIVE_BACKEND.md).

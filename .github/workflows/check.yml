@@ -63,6 +63,7 @@ jobs:
         if: matrix.target != ''
         run: sh tests/alpine-native-smoke.sh
       - run: find src tests -name '*.php' -exec php -l {} \;
+      - run: sh tests/callback-effects-smoke.sh
       - run: sh tests/callable-smoke.sh
       - run: sh tests/forwarding-smoke.sh
       - run: sh tests/smoke.sh

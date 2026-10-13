@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0-RC1 — pending project validation
+
+- Trace source-visible string/array/first-class callables, closures, arrows, invokable objects, simple callback factories, named/default arguments and PHP 8.5 pipes/constant-expression callables.
+- Model common array callback consumers with literal cardinalities and scalar builtin proofs. Preserve PHP evaluation order, captured values and uncertainty after mutable/reference bindings.
+- Follow Symfony cache and Doctrine transaction callbacks conservatively; expand typed Doctrine ancestry, factory and modern DBAL execution recognition.
+- Keep unrelated query classes ordinary source calls. Opaque external calls remain incomplete, without suppressing subsequent Doctrine executions; ORM lifecycle effects remain uncertain.
+- Add 60 neutral regression entrypoints and exact PHP/Rust report parity. Select shared engine 0.4.0 in a separate cache. Candidate builds require an explicit engine override until release assets are published.
+
 ## 1.1.2 — 2026-10-13
 
 - Add statically linked Linux musl binaries and SHA-256 checksums for x86_64 and aarch64/arm64.
