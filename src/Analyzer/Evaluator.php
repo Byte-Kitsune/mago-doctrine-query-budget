@@ -9,7 +9,6 @@ use Mago\Sdk\Analyzer\Type\ScalarType;
 use Mago\Sdk\Analyzer\Type\ScalarTypeKind;
 use Mago\Sdk\Span;
 use PhpParser\Node;
-use PhpParser\NodeFinder;
 
 /** Conservative control-flow and call summary over one Mago source generation. */
 final class Evaluator
@@ -160,8 +159,12 @@ final class Evaluator
     private function expression(Node\Expr $expr, string $class, string $file, array &$env, array $stack): Estimate
     {
         if (++$this->visits > 25_000) return Estimate::unknown('analysis work limit');
+        if ($expr instanceof Node\Expr\Closure || $expr instanceof Node\Expr\ArrowFunction) return new Estimate();
         if ($expr instanceof Node\Expr\MethodCall || $expr instanceof Node\Expr\NullsafeMethodCall) {
             $sum = $this->expression($expr->var, $class, $file, $env, $stack);
+            if ($expr->isFirstClassCallable()) {
+                return $expr->name instanceof Node\Expr ? $sum->plus($this->expression($expr->name, $class, $file, $env, $stack)) : $sum;
+            }
             foreach ($expr->args as $arg) if ($arg instanceof Node\Arg) $sum = $sum->plus($this->expression($arg->value, $class, $file, $env, $stack));
             if (!$expr->name instanceof Node\Identifier) return $sum->plus(Estimate::unknown('dynamic method call at ' . $file . ':' . $expr->getStartLine()));
             $receiver = $this->receiver($expr->var, $class, $file, $env);
@@ -171,6 +174,10 @@ final class Evaluator
         }
         if ($expr instanceof Node\Expr\StaticCall) {
             $sum = new Estimate();
+            if ($expr->isFirstClassCallable()) {
+                foreach ([$expr->class, $expr->name] as $selector) if ($selector instanceof Node\Expr) $sum = $sum->plus($this->expression($selector, $class, $file, $env, $stack));
+                return $sum;
+            }
             foreach ($expr->args as $arg) if ($arg instanceof Node\Arg) $sum = $sum->plus($this->expression($arg->value, $class, $file, $env, $stack));
             if ($expr->class instanceof Node\Name && $expr->name instanceof Node\Identifier) {
                 $scope = strtolower($expr->class->toString());
@@ -207,6 +214,7 @@ final class Evaluator
             return $sum;
         }
         if ($expr instanceof Node\Expr\FuncCall) {
+            if ($expr->isFirstClassCallable()) return $expr->name instanceof Node\Expr ? $this->expression($expr->name, $class, $file, $env, $stack) : new Estimate();
             $sum = new Estimate();
             foreach ($expr->args as $arg) if ($arg instanceof Node\Arg) $sum = $sum->plus($this->expression($arg->value, $class, $file, $env, $stack));
             if (!$expr->name instanceof Node\Name) return $sum->plus(Estimate::unknown('dynamic function call at ' . $file . ':' . $expr->getStartLine()));
@@ -297,7 +305,7 @@ final class Evaluator
                 return $type->atomicTypes[0]->name;
             }
         }
-        if ($expr instanceof Node\Expr\MethodCall && $expr->name instanceof Node\Identifier) {
+        if ($expr instanceof Node\Expr\MethodCall && !$expr->isFirstClassCallable() && $expr->name instanceof Node\Identifier) {
             $base = $this->receiver($expr->var, $class, $file, $env);
             $name = strtolower($expr->name->toString());
             if ($base === 'Doctrine\\ORM\\QueryBuilder' && $name === 'getquery') return 'Doctrine\\ORM\\Query';
@@ -331,6 +339,20 @@ final class Evaluator
         };
     }
 
+    /** Only calls evaluated in this body can disprove its recursion breaker. */
+    private function executedCalls(array $statements, string $type): array
+    {
+        $calls = [];
+        $visit = function (mixed $value) use (&$visit, &$calls, $type): void {
+            if ($value instanceof Node\Expr\Closure || $value instanceof Node\Expr\ArrowFunction || $value instanceof Node\Stmt\Class_ || $value instanceof Node\Stmt\Function_) return;
+            if ($value instanceof $type && !$value->isFirstClassCallable()) $calls[] = $value;
+            if ($value instanceof Node) foreach ($value->getSubNodeNames() as $name) $visit($value->$name);
+            elseif (is_array($value)) foreach ($value as $node) $visit($node);
+        };
+        $visit($statements);
+        return $calls;
+    }
+
     private function hasProvenBreaker(Node\Stmt\ClassMethod $method, string $name): bool
     {
         $parameter = $method->params[0] ?? null;
@@ -340,7 +362,8 @@ final class Evaluator
         $condition = $guard->cond;
         if (!$condition instanceof Node\Expr\BinaryOp\SmallerOrEqual || !$condition->left instanceof Node\Expr\Variable || $condition->left->name !== $variable || !$condition->right instanceof Node\Scalar\Int_ || $condition->right->value !== 0 || !($guard->stmts[0] ?? null) instanceof Node\Stmt\Return_) return false;
         $found = false;
-        foreach ((new NodeFinder())->findInstanceOf($method->stmts ?? [], Node\Expr\MethodCall::class) as $call) {
+        foreach ($this->executedCalls($method->stmts ?? [], Node\Expr\MethodCall::class) as $call) {
+            if ($call->isFirstClassCallable()) continue;
             if (!$call->name instanceof Node\Identifier || strcasecmp($call->name->toString(), $name) !== 0) continue;
             if (!$call->var instanceof Node\Expr\Variable || $call->var->name !== 'this') return false;
             $arg = ($call->args[0] ?? null) instanceof Node\Arg ? $call->args[0]->value : null;
@@ -359,7 +382,8 @@ final class Evaluator
         $condition = $guard->cond;
         if (!$condition instanceof Node\Expr\BinaryOp\SmallerOrEqual || !$condition->left instanceof Node\Expr\Variable || $condition->left->name !== $variable || !$condition->right instanceof Node\Scalar\Int_ || $condition->right->value !== 0 || !($guard->stmts[0] ?? null) instanceof Node\Stmt\Return_) return false;
         $found = false;
-        foreach ((new NodeFinder())->findInstanceOf($function->stmts, Node\Expr\FuncCall::class) as $call) {
+        foreach ($this->executedCalls($function->stmts, Node\Expr\FuncCall::class) as $call) {
+            if ($call->isFirstClassCallable()) continue;
             if (!$call->name instanceof Node\Name) continue;
             $namespaced = $call->name->getAttribute('namespacedName');
             $calledName = Program::name($namespaced instanceof Node\Name ? $namespaced : $call->name);
