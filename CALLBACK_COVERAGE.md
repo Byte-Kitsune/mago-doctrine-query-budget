@@ -1,6 +1,6 @@
 # Callback and hook coverage
 
-This candidate models source-visible invocation effects. A declaration, attribute or container tag is evidence of a potential hook, not proof of activation in a particular request. Query bounds describe one modeled invocation or the supported consumer's invocation range. Physical SQL requires runtime instrumentation.
+This contract models source-visible invocation effects. A declaration, attribute or container tag is evidence of a potential hook, not proof of activation in a particular request. Query bounds describe one modeled invocation or the supported consumer's invocation range. Physical SQL requires runtime instrumentation.
 
 ## PHP invocation families
 

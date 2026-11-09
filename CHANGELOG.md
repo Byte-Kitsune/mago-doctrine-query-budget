@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0 — 2026-11-09
+
+- Publish the 1.2.0-RC1 functionality as a stable release: callback and query-effect tracing, framework hook budgets and shared engine 0.4.0.
+- Engine 0.4.0 binaries are installed from the stable Architecture Graph v1.4.0 assets after checksum verification; update all engine-0.4.0 adapters together in a shared worker.
+
 ## 1.2.0-RC1 — pending project validation
 
 - Trace source-visible string/array/first-class callables, closures, arrows, invokable objects, simple callback factories, named/default arguments and PHP 8.5 pipes/constant-expression callables.
