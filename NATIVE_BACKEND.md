@@ -52,10 +52,10 @@ Neutral regressions cover typed delegation, first-class callable creation, defer
 
 `$this->mapNode(...)`, `Type::mapNode(...)` and `mapNode(...)` create callables; the analyzer does not execute their target bodies at creation. Receiver and dynamic-name expressions are still evaluated, including their query side effects. Direct recursive calls remain detectable.
 
-Higher-order callback execution is modeled for supported consumers and source-visible callable values. Literal cardinalities can produce finite bounds; dynamic multiplicity and unsupported binding/effect paths remain incomplete. The [README](README.md#callback-and-query-effects-12-candidate) documents the supported forms and conservative limits. The neutral callback corpus includes evaluation-order and mutable-binding regressions and compares complete PHP/Rust reports.
+Higher-order callback execution is modeled for supported consumers and source-visible callable values. Literal cardinalities can produce finite bounds; dynamic multiplicity and unsupported binding/effect paths remain incomplete. The [README](README.md#callback-and-query-effects-12) documents the supported forms and conservative limits. The neutral callback corpus includes evaluation-order and mutable-binding regressions and compares complete PHP/Rust reports.
 
-## Candidate engine 0.4.0
+## Engine 0.4.0
 
-This branch prepares engine 0.4.0 and an independent cache. Release downloads are reserved for Architecture Graph v1.4.0-RC1; until those assets are published, build locally or use the matching CI binary with `MAGO_NATIVE_ENGINE`. When combining extensions in one worker, use all engine-0.4.0 companion branches: the PHP adapter namespace is shared, so mixed adapter generations are unsupported.
+Engine 0.4.0 uses an independent cache and is downloaded from the Architecture Graph v1.4.0 release assets after checksum verification; `MAGO_NATIVE_ENGINE` remains an explicit override. When combining extensions in one worker, use the engine-0.4.0 releases of all companion packages (Architecture Graph 1.4.0, Doctrine Query Budget 1.2.0, Symfony Wiring 1.3.0): the PHP adapter namespace is shared, so mixed adapter generations are unsupported.
 
 Framework hook discovery uses compact declarations from the existing Rust project session. Ordinary method bodies are omitted from exported hook metadata; subscriber registration expressions are retained. See CALLBACK_COVERAGE.md for the contract matrix, per-invocation hook scope and explicit property-hook/parser limits.

@@ -9,7 +9,7 @@ use Mago\Sdk\Extension;
 
 final class QueryBudgetExtension
 {
-    public const VERSION = '1.2.0-RC1';
+    public const VERSION = '1.2.0';
     /** Name-resolved hook candidates from the exact snapshot; declarations do not prove activation. */
     public static function inspectFrameworkHooks(\Mago\Sdk\Analyzer\ProjectAnalysis $analysis): array
     {

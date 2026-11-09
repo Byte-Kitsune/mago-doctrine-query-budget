@@ -150,7 +150,7 @@ See [native backend details](NATIVE_BACKEND.md) for offline installation, source
 builds, explicit reference-backend comparisons and the pending project-specific
 recursion investigation.
 
-## Callback and query effects (1.2 candidate)
+## Callback and query effects (1.2)
 
 The model resolves source-visible closures, arrows, string/array/first-class callables, invokable objects, `Closure::fromCallable`, simple callback-returning factories, named/default arguments and PHP 8.5 pipes and constant-expression callables. Creating a callable does not execute it. Callees and arguments follow PHP evaluation order; mutable bindings, reference captures and unknown callback properties retain uncertainty.
 
@@ -162,11 +162,11 @@ DBAL Connection/Statement and query-builder execution contracts count logical AP
 
 Arbitrary callback properties, complex returned callbacks, reflective invocation, unsupported consumers, unresolved dynamic types and unknown namespace fallback remain incomplete. These static bounds do not measure physical SQL: caches, middleware, transaction statements and deferred ORM behavior require runtime instrumentation for actual database counts.
 
-The [neutral callback corpus](tests/callback-effects-corpus) exercises 60 entrypoints, including query-free search classes, external-call continuation, real cycles, evaluation order and mutable captures. PHP/Rust fixture parity does not establish parity on your project. Until candidate assets are published, build engine 0.4.0 and set `MAGO_NATIVE_ENGINE` as described in [NATIVE_BACKEND.md](NATIVE_BACKEND.md).
+The [neutral callback corpus](tests/callback-effects-corpus) exercises 60 entrypoints, including query-free search classes, external-call continuation, real cycles, evaluation order and mutable captures. PHP/Rust fixture parity does not establish parity on your project. Engine 0.4.0 is installed from the Architecture Graph v1.4.0 release assets; see [NATIVE_BACKEND.md](NATIVE_BACKEND.md) for offline installation and source builds.
 
 ## Framework hooks and additional PHP consumers
 
-The candidate now includes comparator/regex/recursive-walk/iterator consumers, supported Closure/reflection invocation and deferred registration families. See [CALLBACK_COVERAGE.md](CALLBACK_COVERAGE.md) for the exact contract matrix and limits.
+Release 1.2 includes comparator/regex/recursive-walk/iterator consumers, supported Closure/reflection invocation and deferred registration families. See [CALLBACK_COVERAGE.md](CALLBACK_COVERAGE.md) for the exact contract matrix and limits.
 
 Framework hook candidates are discovered automatically by exact attributes and framework ancestry, including methods in arbitrary service filenames. `query-budget-hook-inspection` describes one invocation and preserves declaration/registration evidence; it does not add every listener or asynchronous handler to a controller's budget. Supply compiled tags with Symfony Wiring when methods are configured rather than declared:
 
